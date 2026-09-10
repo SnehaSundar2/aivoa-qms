@@ -1,0 +1,35 @@
+From: Thomas Bergstrom <pharmacy@lakesidemedical.example>
+To: complaints@aivoapharma.example
+Date: Mon, 8 Sep 2026 09:14:22 -0500
+Subject: URGENT - Particles found in Ondansetron vials, batch OND25B119
+
+Dear Quality Assurance team,
+
+I am writing to formally raise a complaint on behalf of Lakeside Regional
+Medical Center regarding Ondansetron Injection USP 2 mg/mL, 2 mL single-dose
+vials, batch OND25B119, expiry 05/2028.
+
+During routine pre-administration inspection this morning, our oncology nursing
+staff identified small floating particles in four vials from a carton of 25.
+The particles are translucent and fibre-like and are clearly visible when the
+vial is held against a black background under the inspection lamp. One of our
+pharmacists independently confirmed the observation.
+
+No product from this carton has been administered to any patient. All 25 vials
+from the affected carton have been withdrawn from the ward and quarantined in
+our pharmacy under lock. The four affected vials are being held for return and
+we can ship them to you on request.
+
+We received 200 vials of this batch on 12 August 2026 under purchase order
+LRM-PO-88214. The remaining stock is being held pending your response.
+
+Given that this is an injectable product administered to oncology patients,
+we consider this extremely serious and request a response within 24 hours,
+including your assessment of whether other batches are affected.
+
+Regards,
+
+Thomas Bergstrom, PharmD
+Director of Pharmacy
+Lakeside Regional Medical Center
+Tel: +1 612 555 0148

@@ -1,0 +1,45 @@
+From: Ling Chen <qc.incoming@sinopharm-formulations.example>
+To: quality@aivoapharma.example
+Date: Wed, 3 Sep 2026 11:02:00 +0800
+Subject: Out of specification result - Azithromycin Dihydrate API batch AZD25E063
+
+Dear Sir/Madam,
+
+We wish to notify you of an out of specification result obtained during incoming
+quality control testing of Azithromycin Dihydrate USP, batch AZD25E063, received
+at our Suzhou facility on 21 August 2026.
+
+Consignment details:
+  Product        : Azithromycin Dihydrate USP
+  Material code  : API-AZD-USP
+  Batch          : AZD25E063
+  Manufactured   : 2026-06-14
+  Retest date    : 2028-06-13
+  Quantity       : 12 drums x 25 kg (300 kg total)
+  Our PO         : SPF-2026-4471
+
+Test result:
+  Related substances - total impurities  : 2.34% w/w
+  Specification (per your CoA and USP)   : NMT 2.0% w/w
+  Method                                 : USP <621> HPLC, in-house validated
+
+The test was performed in duplicate by two analysts on separate days and both
+results exceeded the limit. Your Certificate of Analysis for this batch reports
+1.42% w/w total impurities at release. Individual unknown impurity at RRT 1.18
+was 0.31% against a limit of NMT 0.20% w/w.
+
+The full consignment of 12 drums has been placed on quarantine hold at our
+warehouse and will not be released to manufacturing. Storage since receipt has
+been at 22 +/- 3 degrees C with relative humidity below 60%, and we can provide
+the warehouse monitoring records.
+
+We have retained 200 g of sample from drum 4 for any joint investigation and
+can send it to your laboratory. Please advise on disposition of the consignment
+and confirm whether other batches from the same campaign have been supplied to us.
+
+Best regards,
+
+Ling Chen
+Manager, Incoming Quality Control
+Sinopharm Formulations (Suzhou) Co. Ltd
+qc.incoming@sinopharm-formulations.example

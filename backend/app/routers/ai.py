@@ -1,0 +1,115 @@
+"""AI Copilot endpoints - the entry points into the LangGraph agent."""
+from __future__ import annotations
+
+import logging
+
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+
+from app.agent.graph import render_mermaid
+from app.agent.llm import llm_available
+from app.core.config import settings
+from app.schemas import CopilotResult, IntakeTextRequest, ReassessRequest
+from app.services.copilot import run_copilot
+from app.services.documents import UnsupportedDocument, extract_text
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/ai", tags=["ai-copilot"])
+
+
+@router.get("/health")
+def ai_health() -> dict:
+    """Lets the UI tell the operator up front whether the model is live."""
+    return {
+        "llm_configured": llm_available(),
+        "extraction_model": settings.groq_model,
+        "reasoning_model": settings.groq_reasoning_model,
+        "mode": "llm" if llm_available() else "rule-based fallback",
+        "message": (
+            "Groq connected."
+            if llm_available()
+            else "GROQ_API_KEY is not set - the copilot will run deterministic rules "
+                 "and every result will be labelled as rule-based."
+        ),
+    }
+
+
+@router.get("/graph")
+def graph_definition() -> dict:
+    """The compiled LangGraph topology, rendered as Mermaid for the UI."""
+    return {"mermaid": render_mermaid()}
+
+
+@router.post("/intake/text", response_model=CopilotResult)
+def intake_text(payload: IntakeTextRequest) -> CopilotResult:
+    """Run the agent over pasted text - an email body, a phone note, a prompt."""
+    return run_copilot(
+        raw_text=payload.text,
+        source_type=payload.source_type,
+        source_reference=payload.source_reference,
+    )
+
+
+@router.post("/intake/file", response_model=CopilotResult)
+async def intake_file(
+    file: UploadFile = File(...),
+    source_type: str | None = Form(None),
+) -> CopilotResult:
+    """Run the agent over an uploaded PDF, .eml, image or text file."""
+    data = await file.read()
+
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+    if len(data) > max_bytes:
+        raise HTTPException(413, f"File exceeds the {settings.max_upload_mb} MB limit")
+    if not data:
+        raise HTTPException(400, "Uploaded file is empty")
+
+    try:
+        text, detected_type = extract_text(data, file.filename or "upload")
+    except UnsupportedDocument as exc:
+        # 422 rather than 500: the request was well-formed, the content was not
+        # usable, and the message is written to be shown directly to the user.
+        raise HTTPException(422, str(exc)) from exc
+
+    logger.info("Extracted %s chars from %s (%s)", len(text), file.filename, detected_type)
+    return run_copilot(
+        raw_text=text,
+        source_type=source_type or detected_type,
+        source_reference=file.filename,
+    )
+
+
+@router.post("/reassess", response_model=CopilotResult)
+def reassess(payload: ReassessRequest) -> CopilotResult:
+    """Re-run the copilot against the form as the operator has edited it.
+
+    This is the "the AI got it wrong, I fixed the batch number, try again"
+    path. Whatever the operator typed is passed as `existing` and the agent is
+    forbidden from overwriting it.
+    """
+    record = payload.complaint.model_dump(exclude_none=True)
+
+    narrative_parts = [
+        f"Product: {record.get('product_name', 'not stated')}",
+        f"Batch: {record.get('batch_number', 'not stated')}",
+        f"Category: {record.get('complaint_category', 'not stated')}",
+        f"Complainant: {record.get('complainant_organisation', 'not stated')}",
+        f"Quantity affected: {record.get('quantity_complained', 'not stated')}",
+        "",
+        record.get("complaint_description") or "",
+    ]
+    narrative = "\n".join(narrative_parts).strip()
+
+    if len(narrative) < 40:
+        raise HTTPException(
+            400,
+            "Not enough information to assess. Enter at least a product and a "
+            "description of the defect.",
+        )
+
+    source_text = record.get("source_text") or narrative
+    return run_copilot(
+        raw_text=source_text if len(source_text) > len(narrative) else narrative,
+        source_type=record.get("source_type") or "Manual Entry",
+        source_reference=record.get("source_reference"),
+        existing=record,
+    )

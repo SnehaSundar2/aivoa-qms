@@ -1,0 +1,79 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Count 1 /Kids [5 0 R] >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+4 0 obj
+<< /Length 2188 >>
+stream
+BT /F1 10 Tf 14 TL 56 790 Td
+(From: Ling Chen <qc.incoming@sinopharm-formulations.example>) Tj T*
+(To: quality@aivoapharma.example) Tj T*
+(Date: Wed, 3 Sep 2026 11:02:00 +0800) Tj T*
+(Subject: Out of specification result - Azithromycin Dihydrate API batch AZD25E063) Tj T*
+T*
+(Dear Sir/Madam,) Tj T*
+T*
+(We wish to notify you of an out of specification result obtained during incoming) Tj T*
+(quality control testing of Azithromycin Dihydrate USP, batch AZD25E063, received) Tj T*
+(at our Suzhou facility on 21 August 2026.) Tj T*
+T*
+(Consignment details:) Tj T*
+(  Product        : Azithromycin Dihydrate USP) Tj T*
+(  Material code  : API-AZD-USP) Tj T*
+(  Batch          : AZD25E063) Tj T*
+(  Manufactured   : 2026-06-14) Tj T*
+(  Retest date    : 2028-06-13) Tj T*
+(  Quantity       : 12 drums x 25 kg \(300 kg total\)) Tj T*
+(  Our PO         : SPF-2026-4471) Tj T*
+T*
+(Test result:) Tj T*
+(  Related substances - total impurities  : 2.34% w/w) Tj T*
+(  Specification \(per your CoA and USP\)   : NMT 2.0% w/w) Tj T*
+(  Method                                 : USP <621> HPLC, in-house validated) Tj T*
+T*
+(The test was performed in duplicate by two analysts on separate days and both) Tj T*
+(results exceeded the limit. Your Certificate of Analysis for this batch reports) Tj T*
+(1.42% w/w total impurities at release. Individual unknown impurity at RRT 1.18) Tj T*
+(was 0.31% against a limit of NMT 0.20% w/w.) Tj T*
+T*
+(The full consignment of 12 drums has been placed on quarantine hold at our) Tj T*
+(warehouse and will not be released to manufacturing. Storage since receipt has) Tj T*
+(been at 22 +/- 3 degrees C with relative humidity below 60%, and we can provide) Tj T*
+(the warehouse monitoring records.) Tj T*
+T*
+(We have retained 200 g of sample from drum 4 for any joint investigation and) Tj T*
+(can send it to your laboratory. Please advise on disposition of the consignment) Tj T*
+(and confirm whether other batches from the same campaign have been supplied to us.) Tj T*
+T*
+(Best regards,) Tj T*
+T*
+(Ling Chen) Tj T*
+(Manager, Incoming Quality Control) Tj T*
+(Sinopharm Formulations \(Suzhou\) Co. Ltd) Tj T*
+(qc.incoming@sinopharm-formulations.example) Tj T*
+T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents 4 0 R >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000212 00000 n 
+0000002452 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+2578
+%%EOF

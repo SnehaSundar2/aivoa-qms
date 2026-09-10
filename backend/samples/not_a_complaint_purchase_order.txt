@@ -1,0 +1,26 @@
+From: procurement@vertexdistributors.example
+To: sales@aivoapharma.example
+Date: Mon, 8 Sep 2026 10:30:00 +0000
+Subject: Purchase Order VD-2026-11042 - Q4 replenishment
+
+Dear Sales team,
+
+Please find our purchase order for Q4 replenishment stock.
+
+  PO Number   : VD-2026-11042
+  Delivery by : 2026-10-15
+  Incoterms   : CIP Rotterdam
+
+  1. Metformin Hydrochloride Tablets IP 500 mg  -  800 packs
+  2. Paracetamol Oral Suspension 250 mg/5 mL    -  1,500 bottles
+  3. Ondansetron Injection USP 2 mg/mL          -  400 vials
+
+Please confirm acceptance and the expected despatch date. Kindly ensure the
+Certificate of Analysis accompanies each consignment as usual, and that
+remaining shelf life at delivery is not less than 80%.
+
+Payment terms remain net 45 days as per our supply agreement.
+
+Best regards,
+Procurement Department
+Vertex Distributors BV

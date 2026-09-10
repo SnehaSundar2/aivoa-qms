@@ -1,0 +1,28 @@
+# Postgres for local development.
+#
+#   docker compose up -d
+#   cd backend && python seed.py
+#
+# The backend defaults to this connection string, so nothing else needs
+# configuring. Swap the service for MySQL if you prefer - the ORM layer is
+# dialect-agnostic and PyMySQL is already in requirements.txt.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: qms-postgres
+    environment:
+      POSTGRES_USER: qms
+      POSTGRES_PASSWORD: qms
+      POSTGRES_DB: qms_complaints
+    ports:
+      - "5432:5432"
+    volumes:
+      - qms-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qms -d qms_complaints"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  qms-pgdata:
