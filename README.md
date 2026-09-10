@@ -181,7 +181,7 @@ loudly in the log.
 cd backend
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-dev.txt
 
 cp .env.example .env             # add your GROQ_API_KEY
 python seed.py                   # 6 historical complaints, needed for duplicate detection
@@ -301,6 +301,9 @@ carries a role, a controlled vocabulary and an explicit no-fabrication rule.
 ```bash
 cd backend && pytest -q      # 65 tests
 ```
+
+Test dependencies live in `requirements-dev.txt`; install it alongside
+`requirements.txt` if you skipped it during setup.
 
 Covers the JSON extraction and schema-repair loop against a stub Groq client (the paths
 that cannot be exercised in CI against the real API), date and enum coercion, graph
