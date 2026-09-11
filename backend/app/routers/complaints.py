@@ -10,7 +10,15 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
-from app.core.enums import ComplaintCategory, ComplaintStatus, ProductType, Severity, SourceType
+from app.core.enums import (
+    COMPLAINT_SOURCES,
+    SITE_BLOCKS,
+    ComplaintCategory,
+    ComplaintStatus,
+    ProductType,
+    Severity,
+    SourceType,
+)
 from app.models import AuditEntry, Complaint, RiskAssessment
 from app.schemas import (
     ComplaintCreate,
@@ -62,6 +70,8 @@ def metadata() -> dict:
         "source_types": [s.value for s in SourceType],
         "departments": ["Quality Assurance", "Quality Control", "Production",
                         "Regulatory Affairs", "Supply Chain", "Engineering"],
+        "site_blocks": list(SITE_BLOCKS),
+        "complaint_sources": list(COMPLAINT_SOURCES),
     }
 
 

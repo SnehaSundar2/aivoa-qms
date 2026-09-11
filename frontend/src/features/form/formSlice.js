@@ -12,27 +12,37 @@
 import { createAsyncThunk, createSelector, createSlice } from '@reduxjs/toolkit'
 
 import { api, endpoints } from '../../api/client'
+import { sendFile, sendMessage } from '../chat/chatSlice'
 import { ingestFile, ingestText, reassess } from '../copilot/copilotSlice'
 
 export const EMPTY_FORM = {
+  // 1. Origin & customer details
+  complaint_source: '',
+  customer_name: '',
   complainant_name: '',
-  complainant_organisation: '',
   complainant_email: '',
   complainant_phone: '',
   country: '',
 
+  // 2. Product & batch identification
   product_name: '',
+  product_strength: '',
   product_code: '',
   product_type: '',
   dosage_form: '',
-  strength: '',
   pack_size: '',
   batch_number: '',
+  affected_quantity: '',
+  quantity_supplied: '',
+  // Free text, not dates: "March 2026" is preserved as written.
   manufacturing_date: '',
   expiry_date: '',
-  quantity_supplied: '',
-  quantity_complained: '',
 
+  // 3. Facility & material impact
+  originating_site_block: '',
+  impacted_npm: '',
+
+  // 4. Defect analysis
   date_of_complaint: '',
   date_received: '',
   complaint_category: '',
@@ -40,6 +50,10 @@ export const EMPTY_FORM = {
   complaint_description: '',
   sample_available: false,
   sample_quantity: '',
+
+  // AI Copilot risk assessment
+  suggested_next_action: '',
+  initial_risk_assessment: '',
 
   severity: '',
   risk_score: null,
@@ -62,7 +76,11 @@ export const saveComplaint = createAsyncThunk(
   'form/save',
   async (_, { getState, rejectWithValue }) => {
     const { values } = getState().form
-    const copilotResult = getState().copilot.result
+    // The conversational copilot stores its assessment in the chat slice; the
+    // older intake panel used copilot.result. Prefer the chat, fall back to
+    // the other, so the assessment is attached either way - losing it means a
+    // complaint is committed with no record of how it was assessed.
+    const copilotResult = getState().chat.copilot ?? getState().copilot.result
 
     // Empty strings must become null - the API expects dates and optional
     // fields to be absent, not "".
@@ -162,7 +180,15 @@ const formSlice = createSlice({
       applyPrefill(state, action.payload?.form_prefill)
     }
 
+    // A chat turn carries form_update; the older intake thunks carry
+    // form_prefill. Both mean the same thing to this slice.
+    const prefillFromChat = (state, action) => {
+      applyPrefill(state, action.payload?.form_update)
+    }
+
     builder
+      .addCase(sendMessage.fulfilled, prefillFromChat)
+      .addCase(sendFile.fulfilled, prefillFromChat)
       .addCase(ingestText.fulfilled, prefillFromCopilot)
       .addCase(ingestFile.fulfilled, prefillFromCopilot)
       .addCase(reassess.fulfilled, prefillFromCopilot)
@@ -197,13 +223,12 @@ export const selectSavedComplaint = (state) => state.form.savedComplaint
 
 /** Mandatory fields, mirroring MANDATORY_FIELDS on the backend. */
 export const MANDATORY = [
-  'complainant_name',
-  'complainant_organisation',
+  'complaint_source',
+  'customer_name',
   'product_name',
   'batch_number',
   'complaint_category',
   'complaint_description',
-  'date_of_complaint',
 ]
 
 // Memoised: a plain `.filter()` selector returns a new array on every call,

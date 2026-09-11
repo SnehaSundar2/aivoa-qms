@@ -548,3 +548,311 @@ table.data td:first-child { white-space: nowrap; }
   .field-row, .field-row-3 { grid-template-columns: 1fr; }
   .content { padding: 14px; }
 }
+
+
+/* ==========================================================================
+   Workbench: complaint record left, copilot conversation right
+   ========================================================================== */
+.workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 460px;
+  height: calc(100vh - 58px);
+  overflow: hidden;
+}
+
+.workbench-form {
+  overflow-y: auto;
+  padding: 30px 38px 40px;
+  background: var(--surface);
+}
+
+.record-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 24px;
+}
+.record-head h1 { font-size: 25px; letter-spacing: -0.022em; }
+.record-head p { font-size: 13px; color: var(--text-3); margin: 3px 0 0; }
+
+.triage-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 13px; border-radius: 20px;
+  font-size: 12.5px; font-weight: 600; white-space: nowrap;
+  border: 1px solid transparent;
+}
+.triage-pill.is-pending {
+  background: #fdf4e3; color: #9a6510; border-color: #f2ddb4;
+}
+.triage-pill.is-ready {
+  background: #e6f7ee; color: #10704a; border-color: #b2e0c8;
+}
+.pill-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+/* --- the record itself --- */
+.record-section { margin-bottom: 26px; }
+.record-step {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.07em;
+  text-transform: uppercase; color: var(--text-3);
+  margin-bottom: 14px;
+}
+.record .field-label {
+  font-size: 13px; font-weight: 500; color: var(--text);
+  margin-bottom: 7px;
+}
+.record input[type='text'],
+.record input[type='email'],
+.record select,
+.record textarea {
+  padding: 11px 13px; font-size: 13.5px;
+  border-radius: 9px; border-color: var(--border);
+  background: var(--surface);
+}
+.record input::placeholder, .record textarea::placeholder { color: #b3bcc8; }
+.record .field-row { gap: 22px; margin-bottom: 2px; }
+.record .field { margin-bottom: 17px; }
+
+/* A field the copilot filled reads as confirmed, not as a warning. */
+.record .is-ai-filled input,
+.record .is-ai-filled select,
+.record .is-ai-filled textarea {
+  background: #fbfaff;
+  border-color: #d7cdf5;
+}
+
+/* --- AI copilot risk assessment block --- */
+.risk-box {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 18px 6px;
+  background: var(--surface-2);
+  margin-top: 8px;
+  transition: background 0.25s, border-color 0.25s;
+}
+.risk-box.is-active {
+  background: linear-gradient(180deg, #f7f5ff, #fdfcff);
+  border-color: #ded3f8;
+}
+.risk-box-head {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 600; color: var(--ai);
+  margin-bottom: 16px;
+}
+.risk-box .field-label { color: var(--ai); font-size: 12.5px; }
+
+.record-actions { margin-top: 26px; }
+.record-missing {
+  font-size: 12.5px; color: var(--text-3); margin-bottom: 11px;
+}
+.btn-commit {
+  width: 100%; justify-content: center;
+  background: var(--ai); border-color: var(--ai); color: #fff;
+  padding: 13px 18px; font-size: 14px; font-weight: 600;
+  border-radius: 9px;
+}
+.btn-commit:hover:not(:disabled) { background: #5a32b8; border-color: #5a32b8; }
+.record-actions .row { gap: 10px; }
+.record-actions .row .btn-ghost { flex: 0 0 auto; }
+.record-actions .row .btn-commit { flex: 1; }
+
+/* ==========================================================================
+   Copilot chat
+   ========================================================================== */
+.copilot-chat {
+  display: flex; flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--surface-2);
+  min-height: 0;
+  position: relative;
+}
+.copilot-chat.is-dropping::after {
+  content: '';
+  position: absolute; inset: 8px;
+  border: 2px dashed var(--ai);
+  border-radius: 12px;
+  background: rgba(107, 63, 212, 0.05);
+  pointer-events: none;
+}
+
+.chat-head {
+  display: flex; align-items: center; gap: 11px;
+  padding: 16px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.chat-head-icon { color: var(--ai); display: grid; place-items: center; }
+.chat-head-text { flex: 1; min-width: 0; }
+.chat-head-text h2 { font-size: 15px; letter-spacing: -0.01em; }
+.chat-head-text p { font-size: 12px; color: var(--text-3); margin: 1px 0 0; }
+.chat-status-dot {
+  width: 9px; height: 9px; border-radius: 50%;
+  background: var(--brand); flex: 0 0 auto;
+}
+.chat-status-dot.is-busy { background: var(--major); animation: pulse 1.1s ease-in-out infinite; }
+.chat-status-dot.is-down { background: var(--critical); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+.chat-scroll {
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 20px 18px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+
+.msg { display: flex; gap: 10px; align-items: flex-start; }
+.msg-assistant { justify-content: flex-start; }
+.msg-user { justify-content: flex-end; }
+
+.msg-avatar {
+  width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center; flex: 0 0 auto;
+  margin-top: 2px;
+}
+.msg-avatar-ai { background: #ede8fb; color: var(--ai); }
+.msg-avatar-ai.is-tool { background: #e3f6ec; color: #14804a; }
+.msg-avatar-ai.is-error { background: var(--critical-soft); color: var(--critical); }
+.msg-avatar-user { background: var(--surface-3); color: var(--text-2); }
+
+.msg-bubble {
+  max-width: 78%;
+  padding: 12px 15px;
+  border-radius: 12px;
+  font-size: 13.5px; line-height: 1.58;
+  white-space: pre-wrap; word-break: break-word;
+}
+.msg-assistant .msg-bubble {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.msg-user .msg-bubble {
+  background: var(--ai);
+  color: #fff;
+  border: 1px solid var(--ai);
+}
+
+.msg-attachment {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 9px; margin-bottom: 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.17);
+  font-size: 12px;
+}
+.msg-attachment-size { opacity: 0.75; margin-left: auto; white-space: nowrap; }
+
+.msg-meta {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  margin-top: 9px; padding-top: 9px;
+  border-top: 1px solid var(--border);
+}
+.tool-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--mono); font-size: 10.5px; font-weight: 600;
+  padding: 2px 7px; border-radius: 5px;
+  background: #e3f6ec; color: #14804a; border: 1px solid #bfe6d0;
+}
+.tool-chip.is-warn {
+  background: var(--major-soft); color: var(--major); border-color: var(--major-border);
+}
+.msg-latency { font-size: 10.5px; color: var(--text-3); font-family: var(--mono); }
+
+.msg-bubble.is-thinking { display: flex; gap: 5px; padding: 15px; }
+.msg-bubble.is-thinking .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--text-3);
+  animation: bounce 1.2s infinite ease-in-out;
+}
+.msg-bubble.is-thinking .dot:nth-child(2) { animation-delay: 0.15s; }
+.msg-bubble.is-thinking .dot:nth-child(3) { animation-delay: 0.3s; }
+@keyframes bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+
+.chat-drop-hint {
+  text-align: center; padding: 14px;
+  font-size: 12.5px; color: var(--ai); font-weight: 550;
+}
+
+.chat-degraded {
+  padding: 9px 18px;
+  background: var(--major-soft);
+  border-top: 1px solid var(--major-border);
+  color: #7a4310; font-size: 12px; line-height: 1.5;
+  flex: 0 0 auto;
+}
+
+.chat-input-row {
+  padding: 14px 18px 12px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.chat-input {
+  display: flex; align-items: flex-end; gap: 8px;
+  border: 1.5px solid var(--ai-border);
+  border-radius: 11px;
+  padding: 7px 8px 7px 10px;
+  background: var(--surface);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.chat-input:focus-within {
+  border-color: var(--ai);
+  box-shadow: 0 0 0 3px rgba(107, 63, 212, 0.11);
+}
+.chat-input textarea {
+  flex: 1; border: 0; padding: 6px 2px; resize: none;
+  font-size: 13.5px; line-height: 1.5; max-height: 140px;
+  background: transparent; min-height: 22px;
+}
+.chat-input textarea:focus { outline: none; box-shadow: none; }
+.chat-attach, .chat-send {
+  border: 0; cursor: pointer; flex: 0 0 auto;
+  display: grid; place-items: center;
+  border-radius: 8px; transition: background 0.13s, opacity 0.13s;
+}
+.chat-attach {
+  width: 30px; height: 30px; background: transparent; color: var(--text-3);
+}
+.chat-attach:hover:not(:disabled) { background: var(--surface-3); color: var(--text-2); }
+.chat-send {
+  width: 32px; height: 32px; background: var(--ai); color: #fff;
+}
+.chat-send:hover:not(:disabled) { background: #5a32b8; }
+.chat-attach:disabled, .chat-send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.chat-foot {
+  text-align: center; margin-top: 9px;
+  font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--text-3); font-weight: 600;
+}
+
+/* --- commit confirmation --- */
+.committed {
+  display: grid; place-items: center;
+  min-height: calc(100vh - 58px); padding: 24px;
+}
+.committed-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+  padding: 38px; max-width: 560px; text-align: center;
+}
+.committed-tick {
+  width: 52px; height: 52px; margin: 0 auto 14px;
+  border-radius: 50%; display: grid; place-items: center;
+  background: #e6f7ee; color: #10704a; font-size: 25px;
+}
+.committed-card h1 { font-size: 21px; margin-bottom: 7px; }
+
+@media (max-width: 1100px) {
+  .workbench { grid-template-columns: minmax(0, 1fr); height: auto; }
+  .copilot-chat { border-left: 0; border-top: 1px solid var(--border); height: 620px; }
+  .workbench-form { padding: 22px; }
+}
+
+/* A select holding a value outside its option list - must never look blank. */
+.record select.is-unknown-value,
+select.is-unknown-value {
+  border-color: var(--major);
+  background: var(--major-soft);
+}

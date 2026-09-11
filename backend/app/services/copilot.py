@@ -22,7 +22,9 @@ from typing import Any
 
 from app.agent.graph import get_graph
 from app.core.enums import (
+    COMPLAINT_SOURCES,
     SEVERITY_TAT_DAYS,
+    SITE_BLOCKS,
     ComplaintCategory,
     ProductType,
     Severity,
@@ -69,6 +71,32 @@ def _coerce_date(value: Any) -> str | None:
     return None
 
 
+def _snap_list(value: Any, allowed: list[str]) -> str | None:
+    """Snap a loose string to one of `allowed`, or drop it.
+
+    Anything a dropdown offers must go through this. A value outside the list
+    renders as an EMPTY select while still counting as populated, so the
+    operator sees a blank field and commits a value they never read - which is
+    how "Apollo Pharmacy" once ended up in complaint_source.
+    """
+    if not value:
+        return None
+    text = str(value).strip()
+
+    for option in allowed:
+        if option.lower() == text.lower():
+            return option
+
+    match = get_close_matches(text.lower(), [o.lower() for o in allowed], n=1, cutoff=0.75)
+    if match:
+        snapped = next(o for o in allowed if o.lower() == match[0])
+        logger.info("Snapped %r to %r", text, snapped)
+        return snapped
+
+    logger.info("Dropped unrecognised value %r (allowed: %s)", text, allowed[:4])
+    return None
+
+
 def _snap_enum(value: Any, enum_cls) -> str | None:
     """Snap a loose string to an exact enum value, or drop it."""
     if not value:
@@ -95,8 +123,8 @@ def _build_prefill(extracted: dict, risk: dict, summary: str | None, source: dic
     prefill: dict[str, Any] = {}
 
     passthrough = (
-        # 1. Origin & customer
-        "complaint_source", "customer_name", "complainant_name",
+        # 1. Origin & customer ("complaint_source" is snapped below)
+        "customer_name", "complainant_name",
         "complainant_email", "complainant_phone", "country",
         # 2. Product & batch
         "product_name", "product_strength", "product_code", "dosage_form",
@@ -104,8 +132,9 @@ def _build_prefill(extracted: dict, risk: dict, summary: str | None, source: dic
         # Dates stay verbatim: "March 2026" is what the customer wrote and what
         # the record must show.
         "manufacturing_date", "expiry_date",
-        # 3. Facility & material impact
-        "originating_site_block", "impacted_npm",
+        # 3. Facility & material impact ("originating_site_block" is snapped
+        # below, not passed through - it is a dropdown)
+        "impacted_npm",
         # 4. Defect analysis
         "complaint_category", "complaint_subcategory", "complaint_description",
         "sample_quantity",
@@ -119,6 +148,17 @@ def _build_prefill(extracted: dict, risk: dict, summary: str | None, source: dic
     coerced = _coerce_date(extracted.get("date_of_complaint"))
     if coerced:
         prefill["date_of_complaint"] = coerced
+
+    # Dropdown-backed fields: snap to the controlled list or leave blank.
+    # Named complaint_source, not source: 'source' is already this function's
+    # provenance dict parameter, and shadowing it silently broke the prefill.
+    complaint_source = _snap_list(extracted.get("complaint_source"), list(COMPLAINT_SOURCES))
+    if complaint_source:
+        prefill["complaint_source"] = complaint_source
+
+    block = _snap_list(extracted.get("originating_site_block"), list(SITE_BLOCKS))
+    if block and block != "Not Determined":
+        prefill["originating_site_block"] = block
 
     product_type = _snap_enum(extracted.get("product_type"), ProductType)
     if product_type and product_type != ProductType.UNKNOWN.value:

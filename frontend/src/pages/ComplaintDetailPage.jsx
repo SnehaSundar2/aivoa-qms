@@ -127,26 +127,29 @@ export default function ComplaintDetailPage() {
                 Record
               </div>
               <dl className="kv">
-                <Row label="Complainant">
-                  {complaint.complainant_name}
-                  {complaint.complainant_organisation &&
-                    ` · ${complaint.complainant_organisation}`}
+                <Row label="Customer">
+                  {complaint.customer_name}
+                  {complaint.complainant_name && ` · ${complaint.complainant_name}`}
                 </Row>
+                <Row label="Source">{complaint.complaint_source}</Row>
                 <Row label="Contact">
                   {complaint.complainant_email ?? complaint.complainant_phone}
                 </Row>
                 <Row label="Country">{complaint.country}</Row>
                 <Row label="Product type">{complaint.product_type}</Row>
                 <Row label="Dosage form">
-                  {[complaint.dosage_form, complaint.strength]
+                  {[complaint.dosage_form, complaint.product_strength]
                     .filter(Boolean)
                     .join(' · ') || null}
                 </Row>
+                <Row label="Site block">{complaint.originating_site_block}</Row>
+                <Row label="Impacted NPM">{complaint.impacted_npm}</Row>
                 <Row label="Pack size">{complaint.pack_size}</Row>
                 <Row label="Quantity affected">
-                  {complaint.quantity_complained}
+                  {complaint.affected_quantity}
                 </Row>
-                <Row label="Expiry">{formatDate(complaint.expiry_date)}</Row>
+                <Row label="Manufactured">{complaint.manufacturing_date}</Row>
+                <Row label="Expiry">{complaint.expiry_date}</Row>
                 <Row label="Category">{complaint.complaint_category}</Row>
                 <Row label="Sub-category">{complaint.complaint_subcategory}</Row>
                 <Row label="Sample available">
@@ -173,7 +176,11 @@ export default function ComplaintDetailPage() {
                     </div>
                   )}
                 </Row>
-                <Row label="Source">
+                <Row label="Next action">{complaint.suggested_next_action}</Row>
+                <Row label="Initial assessment">
+                  {complaint.initial_risk_assessment}
+                </Row>
+                <Row label="Intake">
                   {complaint.source_type}
                   {complaint.source_reference && ` · ${complaint.source_reference}`}
                 </Row>

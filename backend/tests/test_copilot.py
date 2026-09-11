@@ -10,7 +10,12 @@ from datetime import date, timedelta
 import pytest
 
 from app.core.enums import ComplaintCategory, ProductType, Severity
-from app.services.copilot import _build_prefill, _coerce_date, _snap_enum
+from app.services.copilot import (
+    _build_prefill,
+    _coerce_date,
+    _snap_enum,
+    _snap_list,
+)
 
 
 # --- date coercion --------------------------------------------------------
@@ -145,3 +150,65 @@ def test_severity_is_still_snapped_to_the_controlled_vocabulary():
     """Severity drives the workflow, so it stays constrained."""
     assert _build_prefill({}, {"severity": "critical"}, None, {})["severity"] == "Critical"
     assert "severity" not in _build_prefill({}, {"severity": "Apocalyptic"}, None, {})
+
+
+# --- dropdown-backed fields ------------------------------------------------
+# Regression: the model returned complaint_source="Apollo Pharmacy" (the
+# customer, not the channel). "Apollo Pharmacy" is not an option, so the
+# <select> rendered BLANK while the value still counted as populated - the
+# operator saw an empty field and the record would have committed a value they
+# never read. Anything backed by a dropdown must be snapped or dropped.
+def test_snap_list_accepts_exact_and_cased_variants():
+    from app.core.enums import COMPLAINT_SOURCES
+
+    options = list(COMPLAINT_SOURCES)
+    assert _snap_list("Pharmacy", options) == "Pharmacy"
+    assert _snap_list("pharmacy", options) == "Pharmacy"
+    assert _snap_list("  PHARMACY  ", options) == "Pharmacy"
+
+
+def test_snap_list_drops_a_value_outside_the_vocabulary():
+    from app.core.enums import COMPLAINT_SOURCES
+
+    assert _snap_list("Apollo Pharmacy", list(COMPLAINT_SOURCES)) is None
+    assert _snap_list("", list(COMPLAINT_SOURCES)) is None
+    assert _snap_list(None, list(COMPLAINT_SOURCES)) is None
+
+
+def test_customer_name_is_not_leaked_into_complaint_source():
+    """The exact failure that motivated this: the pharmacy's NAME is not a source."""
+    prefill = _build_prefill(
+        {"complaint_source": "Apollo Pharmacy", "customer_name": "Apollo Pharmacy"},
+        {},
+        None,
+        {},
+    )
+    assert "complaint_source" not in prefill
+    assert prefill["customer_name"] == "Apollo Pharmacy"
+
+
+def test_site_block_is_snapped_and_not_determined_is_left_blank():
+    prefill = _build_prefill(
+        {"originating_site_block": "block a - oral solids"}, {}, None, {}
+    )
+    assert prefill["originating_site_block"] == "Block A - Oral Solids"
+
+    # "Not Determined" is a real option but a useless thing to prefill.
+    blank = _build_prefill({"originating_site_block": "Not Determined"}, {}, None, {})
+    assert "originating_site_block" not in blank
+
+    invented = _build_prefill({"originating_site_block": "Block Z - Wizardry"}, {}, None, {})
+    assert "originating_site_block" not in invented
+
+
+def test_provenance_dict_still_reaches_the_prefill():
+    """Guards the shadowing bug: a local named `source` broke this silently."""
+    prefill = _build_prefill(
+        {"complaint_source": "Pharmacy"},
+        {},
+        None,
+        {"source_type": "Email", "source_reference": "complaint.pdf"},
+    )
+    assert prefill["source_type"] == "Email"
+    assert prefill["source_reference"] == "complaint.pdf"
+    assert prefill["complaint_source"] == "Pharmacy"

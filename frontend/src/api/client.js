@@ -98,4 +98,7 @@ export const endpoints = {
   intakeText: '/ai/intake/text',
   intakeFile: '/ai/intake/file',
   reassess: '/ai/reassess',
+  chat: '/ai/chat',
+  chatGreeting: '/ai/chat/greeting',
+  chatUpload: '/ai/chat/upload',
 }

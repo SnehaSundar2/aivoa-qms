@@ -208,7 +208,7 @@ export default function DashboardPage() {
                       <td className="cell-truncate">
                         {complaint.product_name ?? '—'}
                         <div className="small cell-muted">
-                          {complaint.complainant_organisation ?? ''}
+                          {complaint.customer_name ?? ''}
                         </div>
                       </td>
                       <td className="cell-mono">{complaint.batch_number ?? '—'}</td>

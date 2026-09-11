@@ -34,6 +34,8 @@ const metaSlice = createSlice({
     productTypes: [],
     sourceTypes: [],
     departments: [],
+    siteBlocks: [],
+    complaintSources: [],
     ai: null,
     // True when the backend could not be reached at all - the whole app is
     // useless in that state, so it gets a prominent banner.
@@ -49,6 +51,8 @@ const metaSlice = createSlice({
         state.productTypes = action.payload.product_types
         state.sourceTypes = action.payload.source_types
         state.departments = action.payload.departments
+        state.siteBlocks = action.payload.site_blocks ?? []
+        state.complaintSources = action.payload.complaint_sources ?? []
         state.offline = false
       })
       .addCase(fetchMetadata.rejected, (state) => {

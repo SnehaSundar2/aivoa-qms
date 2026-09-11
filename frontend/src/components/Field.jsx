@@ -79,16 +79,37 @@ export function TextArea({ name, label, required, hint, rows = 4, placeholder })
   )
 }
 
-export function SelectField({ name, label, options = [], required, hint, placeholder = 'Select…' }) {
+export function SelectField({
+  name,
+  label,
+  options = [],
+  required,
+  hint,
+  placeholder = 'Select…',
+}) {
   const { value, isAi, onChange } = useField(name)
+
+  // A value outside the option list would render as a blank select while
+  // still counting as populated - the operator sees an empty field and
+  // commits something they never read. Surface it instead of hiding it.
+  const isUnknown = Boolean(value) && options.length > 0 && !options.includes(value)
+
   return (
-    <Wrapper name={name} label={label} required={required} hint={hint} isAi={isAi}>
+    <Wrapper
+      name={name}
+      label={label}
+      required={required}
+      hint={isUnknown ? `"${value}" is not a recognised option - please correct it` : hint}
+      isAi={isAi}
+    >
       <select
         id={name}
+        className={isUnknown ? 'is-unknown-value' : undefined}
         value={value ?? ''}
         onChange={(event) => onChange(event.target.value)}
       >
         <option value="">{placeholder}</option>
+        {isUnknown && <option value={value}>{value} (unrecognised)</option>}
         {options.map((option) => (
           <option key={option} value={option}>
             {option}

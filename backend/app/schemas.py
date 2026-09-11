@@ -112,9 +112,11 @@ class ExtractedComplaint(BaseModel):
     # --- 1. Origin & customer details ---
     complaint_source: Optional[str] = Field(
         None,
-        description="How the complaint reached us. One of: Pharmacy, Hospital, "
-                    "Distributor, Wholesaler, Regulatory Authority, Direct Customer, "
-                    "Internal, Other.",
+        description="The CHANNEL the complaint arrived through, not the customer's "
+                    "name. Exactly one of: Pharmacy, Hospital, Distributor, "
+                    "Wholesaler, Regulatory Authority, Direct Customer, Internal, "
+                    "Other. If Apollo Pharmacy complains, this is 'Pharmacy' and "
+                    "customer_name is 'Apollo Pharmacy'.",
     )
     customer_name: Optional[str] = Field(
         None, description="Name of the complaining organisation, e.g. 'Apollo Pharmacy'"
