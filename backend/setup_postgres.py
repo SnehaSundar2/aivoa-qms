@@ -50,7 +50,12 @@ def read_password(user: str) -> str:
             sys.exit(1)
         return line.rstrip("\n")
 
-    return getpass.getpass(f"Password for PostgreSQL user '{user}': ")
+    # The terminal shows nothing at all while you type - no asterisks, no
+    # moving cursor. Say so, because otherwise it reads as a frozen prompt.
+    print(f"\nPassword for PostgreSQL user '{user}'.")
+    print("Your typing is hidden - no characters will appear. Type it and press Enter.")
+    print("(Or press Ctrl+C and set $env:PGPASSWORD=\"...\" instead.)")
+    return getpass.getpass("Password: ")
 
 
 def main() -> int:
