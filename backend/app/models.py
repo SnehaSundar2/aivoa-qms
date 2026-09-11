@@ -17,34 +17,48 @@ class Complaint(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     complaint_number: Mapped[str] = mapped_column(String(32), unique=True, index=True)
 
-    # --- Complainant ---
+    # --- 1. Origin & customer details ---
+    complaint_source: Mapped[str | None] = mapped_column(String(80))
+    customer_name: Mapped[str | None] = mapped_column(String(200), index=True)
     complainant_name: Mapped[str | None] = mapped_column(String(160))
-    complainant_organisation: Mapped[str | None] = mapped_column(String(200))
     complainant_email: Mapped[str | None] = mapped_column(String(160))
     complainant_phone: Mapped[str | None] = mapped_column(String(60))
     country: Mapped[str | None] = mapped_column(String(80))
 
-    # --- Product ---
+    # --- 2. Product & batch identification ---
     product_name: Mapped[str | None] = mapped_column(String(200), index=True)
+    product_strength: Mapped[str | None] = mapped_column(String(80))
     product_code: Mapped[str | None] = mapped_column(String(80))
     product_type: Mapped[str | None] = mapped_column(String(40))
     dosage_form: Mapped[str | None] = mapped_column(String(80))
-    strength: Mapped[str | None] = mapped_column(String(80))
     pack_size: Mapped[str | None] = mapped_column(String(80))
     batch_number: Mapped[str | None] = mapped_column(String(80), index=True)
-    manufacturing_date: Mapped[date | None] = mapped_column(Date)
-    expiry_date: Mapped[date | None] = mapped_column(Date)
+    affected_quantity: Mapped[str | None] = mapped_column(String(80))
     quantity_supplied: Mapped[str | None] = mapped_column(String(80))
-    quantity_complained: Mapped[str | None] = mapped_column(String(80))
 
-    # --- Complaint ---
+    # Stored as free text, not Date. The customer writes "March 2026" or
+    # "03/2026" and a complaint record must transcribe what they actually
+    # said - inventing a day to satisfy a DATE column would be a data
+    # integrity problem, and month precision is normal for batch dates.
+    manufacturing_date: Mapped[str | None] = mapped_column(String(40))
+    expiry_date: Mapped[str | None] = mapped_column(String(40))
+
+    # --- 3. Facility & material impact ---
+    originating_site_block: Mapped[str | None] = mapped_column(String(120))
+    impacted_npm: Mapped[str | None] = mapped_column(String(300))
+
+    # --- 4. Defect analysis ---
     date_of_complaint: Mapped[date | None] = mapped_column(Date)
     date_received: Mapped[date | None] = mapped_column(Date)
-    complaint_category: Mapped[str | None] = mapped_column(String(80), index=True)
+    complaint_category: Mapped[str | None] = mapped_column(String(120), index=True)
     complaint_subcategory: Mapped[str | None] = mapped_column(String(120))
     complaint_description: Mapped[str | None] = mapped_column(Text)
     sample_available: Mapped[bool] = mapped_column(Boolean, default=False)
     sample_quantity: Mapped[str | None] = mapped_column(String(80))
+
+    # --- AI Copilot risk assessment (shown inline on the form) ---
+    suggested_next_action: Mapped[str | None] = mapped_column(String(300))
+    initial_risk_assessment: Mapped[str | None] = mapped_column(Text)
 
     # --- Triage / workflow ---
     severity: Mapped[str | None] = mapped_column(String(20), index=True)
@@ -80,7 +94,7 @@ class Complaint(Base):
     def searchable_text(self) -> str:
         parts = [
             self.product_name, self.batch_number, self.complaint_category,
-            self.complaint_description, self.complainant_organisation,
+            self.complaint_description, self.customer_name,
         ]
         return " ".join(p for p in parts if p)
 

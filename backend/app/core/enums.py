@@ -70,11 +70,33 @@ SEVERITY_TAT_DAYS = {
 # Fields a complaint must carry before it can leave Draft. Drives the
 # Completeness Checker node in the agent graph.
 MANDATORY_FIELDS = [
-    "complainant_name",
-    "complainant_organisation",
+    "complaint_source",
+    "customer_name",
     "product_name",
     "batch_number",
     "complaint_category",
     "complaint_description",
-    "date_of_complaint",
+]
+
+# Offered in the "Originating Site Block" dropdown. The agent classifies into
+# these from the dosage form.
+SITE_BLOCKS = [
+    "Block A - Oral Solids",
+    "Block B - Sterile Injectables",
+    "Block C - API Synthesis",
+    "Block D - Liquids & Semi-solids",
+    "Block E - Packaging & Labelling",
+    "External / Contract Site",
+    "Not Determined",
+]
+
+COMPLAINT_SOURCES = [
+    "Pharmacy",
+    "Hospital",
+    "Distributor",
+    "Wholesaler",
+    "Regulatory Authority",
+    "Direct Customer",
+    "Internal",
+    "Other",
 ]

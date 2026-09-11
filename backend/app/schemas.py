@@ -16,24 +16,32 @@ from pydantic import BaseModel, ConfigDict, Field
 # Complaint CRUD
 # --------------------------------------------------------------------------
 class ComplaintBase(BaseModel):
+    # 1. Origin & customer details
+    complaint_source: Optional[str] = None
+    customer_name: Optional[str] = None
     complainant_name: Optional[str] = None
-    complainant_organisation: Optional[str] = None
     complainant_email: Optional[str] = None
     complainant_phone: Optional[str] = None
     country: Optional[str] = None
 
+    # 2. Product & batch identification
     product_name: Optional[str] = None
+    product_strength: Optional[str] = None
     product_code: Optional[str] = None
     product_type: Optional[str] = None
     dosage_form: Optional[str] = None
-    strength: Optional[str] = None
     pack_size: Optional[str] = None
     batch_number: Optional[str] = None
-    manufacturing_date: Optional[date] = None
-    expiry_date: Optional[date] = None
+    affected_quantity: Optional[str] = None
     quantity_supplied: Optional[str] = None
-    quantity_complained: Optional[str] = None
+    manufacturing_date: Optional[str] = None
+    expiry_date: Optional[str] = None
 
+    # 3. Facility & material impact
+    originating_site_block: Optional[str] = None
+    impacted_npm: Optional[str] = None
+
+    # 4. Defect analysis
     date_of_complaint: Optional[date] = None
     date_received: Optional[date] = None
     complaint_category: Optional[str] = None
@@ -41,6 +49,10 @@ class ComplaintBase(BaseModel):
     complaint_description: Optional[str] = None
     sample_available: bool = False
     sample_quantity: Optional[str] = None
+
+    # AI Copilot risk assessment, shown inline on the form
+    suggested_next_action: Optional[str] = None
+    initial_risk_assessment: Optional[str] = None
 
     severity: Optional[str] = None
     risk_score: Optional[int] = None
@@ -89,31 +101,97 @@ class ComplaintListOut(BaseModel):
 # AI Copilot - structured outputs
 # --------------------------------------------------------------------------
 class ExtractedComplaint(BaseModel):
-    """What the extraction node pulls out of an unstructured source."""
+    """Arguments of the `log_complaint` tool.
 
-    complainant_name: Optional[str] = Field(None, description="Person who raised the complaint")
-    complainant_organisation: Optional[str] = Field(None, description="Customer company, hospital or distributor")
+    This doubles as the JSON Schema handed to the model, so the field
+    descriptions are the tool's documentation - they are what actually steers
+    extraction quality. Field names match the form exactly so the frontend can
+    apply the result without a mapping layer.
+    """
+
+    # --- 1. Origin & customer details ---
+    complaint_source: Optional[str] = Field(
+        None,
+        description="How the complaint reached us. One of: Pharmacy, Hospital, "
+                    "Distributor, Wholesaler, Regulatory Authority, Direct Customer, "
+                    "Internal, Other.",
+    )
+    customer_name: Optional[str] = Field(
+        None, description="Name of the complaining organisation, e.g. 'Apollo Pharmacy'"
+    )
+    complainant_name: Optional[str] = Field(
+        None, description="Named individual who raised it, if one is given"
+    )
     complainant_email: Optional[str] = None
     complainant_phone: Optional[str] = None
     country: Optional[str] = None
 
-    product_name: Optional[str] = None
-    product_code: Optional[str] = Field(None, description="Internal product or material code if quoted")
-    product_type: Optional[str] = Field(None, description="One of: API, FDF, Excipient, Packaging Material, Unknown")
-    dosage_form: Optional[str] = Field(None, description="e.g. Tablet, Capsule, Injection, Powder")
-    strength: Optional[str] = None
+    # --- 2. Product & batch identification ---
+    product_name: Optional[str] = Field(
+        None, description="Product name WITHOUT the strength, e.g. 'Amoxicillin Capsules'"
+    )
+    product_strength: Optional[str] = Field(
+        None, description="Strength on its own, e.g. '500 mg', '2 mg/mL'"
+    )
+    product_code: Optional[str] = None
+    product_type: Optional[str] = Field(
+        None, description="One of: API, FDF, Excipient, Packaging Material, Unknown"
+    )
+    dosage_form: Optional[str] = Field(None, description="e.g. Capsule, Tablet, Injection")
     pack_size: Optional[str] = None
-    batch_number: Optional[str] = Field(None, description="Batch or lot number exactly as quoted")
-    manufacturing_date: Optional[str] = Field(None, description="ISO date YYYY-MM-DD if determinable")
-    expiry_date: Optional[str] = Field(None, description="ISO date YYYY-MM-DD if determinable")
+    batch_number: Optional[str] = Field(
+        None, description="Batch or lot number transcribed EXACTLY as written"
+    )
+    affected_quantity: Optional[str] = Field(
+        None, description="How much is affected, with units, e.g. '12 capsules', '2 vials'"
+    )
     quantity_supplied: Optional[str] = None
-    quantity_complained: Optional[str] = Field(None, description="How many units are affected")
+    manufacturing_date: Optional[str] = Field(
+        None,
+        description="Manufacturing date exactly as the customer expressed it, e.g. "
+                    "'March 2026'. Do NOT convert or invent a day.",
+    )
+    expiry_date: Optional[str] = Field(
+        None, description="Expiry date exactly as expressed, e.g. 'February 2028'"
+    )
 
-    date_of_complaint: Optional[str] = Field(None, description="ISO date the customer raised it")
-    complaint_category: Optional[str] = Field(None, description="Must be one of the allowed categories")
-    complaint_subcategory: Optional[str] = Field(None, description="Short free-text refinement, e.g. Chipped tablets")
-    complaint_description: Optional[str] = Field(None, description="Factual restatement of the defect, no speculation")
-    sample_available: Optional[bool] = Field(None, description="True only if the source says a sample is retained or returned")
+    # --- 3. Facility & material impact ---
+    originating_site_block: Optional[str] = Field(
+        None,
+        description="Which manufacturing block would produce this dosage form. Infer "
+                    "from the dosage form when the source does not say. One of: "
+                    "Block A - Oral Solids, Block B - Sterile Injectables, "
+                    "Block C - API Synthesis, Block D - Liquids & Semi-solids, "
+                    "Block E - Packaging & Labelling, External / Contract Site, "
+                    "Not Determined",
+    )
+    impacted_npm: Optional[str] = Field(
+        None,
+        description="Non-product materials implicated, e.g. 'Primary packaging - HDPE "
+                    "bottle and induction seal'. Empty if none is implied.",
+    )
+
+    # --- 4. Defect analysis ---
+    date_of_complaint: Optional[str] = Field(None, description="ISO date YYYY-MM-DD if stated")
+    complaint_category: Optional[str] = Field(
+        None,
+        description="Short formal category in the form 'Product Defect - Discoloration', "
+                    "'Packaging Defect - Seal Failure', 'Labelling Defect - Illegible Print', "
+                    "'Analytical - Out of Specification', 'Foreign Matter - Particulate', "
+                    "'Microbial Contamination', 'Adverse Event - Medical', "
+                    "'Shipping & Storage - Cold Chain Excursion', 'Documentation - CoA'",
+    )
+    complaint_subcategory: Optional[str] = None
+    complaint_description: Optional[str] = Field(
+        None,
+        description="A formal QMS description synthesised from the customer's report: "
+                    "who reported it, what was observed, how many units, and what they "
+                    "are requesting. Two to three factual sentences, no speculation "
+                    "about cause.",
+    )
+    sample_available: Optional[bool] = Field(
+        None, description="True only if a sample is stated to be retained or returnable"
+    )
     sample_quantity: Optional[str] = None
 
     extraction_confidence: float = Field(0.0, ge=0.0, le=1.0)
@@ -164,6 +242,19 @@ class RiskAssessmentResult(BaseModel):
     rationale: Optional[str] = None
     recommended_due_days: Optional[int] = None
 
+    suggested_next_action: Optional[str] = Field(
+        None,
+        description="The single concrete next step for QA, phrased as an instruction, "
+                    "e.g. 'Route to QA Investigation & Issue Replacement'. Max ~60 chars.",
+    )
+    initial_risk_assessment: Optional[str] = Field(
+        None,
+        description="Two sentences of reasoning about the most likely mechanism and what "
+                    "it requires, e.g. 'Potential moisture ingress or primary packaging "
+                    "seal failure leading to capsule discoloration. Requires retention "
+                    "sample examination and batch record review.'",
+    )
+
 
 class CopilotResult(BaseModel):
     """The complete payload the AI Copilot panel renders."""
@@ -199,3 +290,36 @@ class ReassessRequest(BaseModel):
     """Re-run the copilot against whatever is currently in the form."""
 
     complaint: ComplaintBase
+
+
+# --------------------------------------------------------------------------
+# Conversational copilot
+# --------------------------------------------------------------------------
+class ChatMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str
+
+
+class ChatRequest(BaseModel):
+    """One turn of the copilot conversation.
+
+    `form` carries the current state of the complaint form so the agent can see
+    what the operator has already entered and fill only the gaps.
+    """
+
+    message: str = Field(..., min_length=1)
+    history: List[ChatMessage] = Field(default_factory=list)
+    form: dict[str, Any] = Field(default_factory=dict)
+
+
+class ChatResponse(BaseModel):
+    """What the copilot sends back to the chat panel."""
+
+    reply: str = Field(..., description="The assistant's conversational message")
+    # Present only when the log_complaint tool ran on this turn.
+    tool_called: Optional[str] = None
+    form_update: dict[str, Any] = Field(default_factory=dict)
+    copilot: Optional[CopilotResult] = None
+    form_complete: bool = False
+    degraded: bool = False
+    latency_ms: int = 0

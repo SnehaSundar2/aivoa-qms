@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 from datetime import date
+from functools import lru_cache
 
 from app.core.enums import ComplaintCategory, ProductType, Severity
 from app.schemas import (
@@ -22,19 +23,25 @@ from app.schemas import (
 # ---------------------------------------------------------------------------
 # Keyword tables
 # ---------------------------------------------------------------------------
+# Ordered: first match wins, so the list runs from most severe to least, and
+# within that, a defect of the DOSAGE FORM is checked before a defect of the
+# PACKAGING. That ordering matters - "discoloured capsules in a sealed bottle"
+# mentions a bottle and a seal, but the defect is the capsule, not the pack.
+# Packaging entries are therefore defect phrases ("seal not adhered"), never
+# bare container nouns ("bottle").
 CATEGORY_KEYWORDS: list[tuple[ComplaintCategory, tuple[str, ...]]] = [
     (ComplaintCategory.ADVERSE_EVENT, ("adverse event", "hospitalis", "hospitaliz", "rash", "anaphyla", "side effect", "patient harm", "injury", "nausea", "lack of efficacy")),
     (ComplaintCategory.COUNTERFEIT, ("counterfeit", "falsified", "tamper", "suspect product", "not genuine")),
     (ComplaintCategory.MICROBIAL, ("microbial", "fungal", "mould", "mold", "bacterial", "sterility", "growth observed", "contaminat")),
-    # "particle" (singular stem) deliberately covers particle/particles; it does
-    # not cover "particulate", which is listed separately.
     (ComplaintCategory.FOREIGN_MATTER, ("foreign matter", "particle", "particulate", "metal", "glass", "fibre", "fiber", "hair", "insect")),
-    (ComplaintCategory.ANALYTICAL, ("out of specification", "oos", "assay", "dissolution", "impurity", "potency", "fails the specification", "result of", "% w/w")),
+    (ComplaintCategory.ANALYTICAL, ("out of specification", "oos", "assay", "dissolution", "impurity", "potency", "fails the specification", "% w/w")),
     (ComplaintCategory.LABELLING, ("label", "artwork", "misprint", "illegible", "wrong text", "mismatch", "barcode")),
-    (ComplaintCategory.PACKAGING, ("packaging", "blister", "seal", "cap", "closure", "leak", "container", "carton damaged", "bottle")),
+    # Defects of the dosage form itself.
+    (ComplaintCategory.PRODUCT_QUALITY, ("chipped", "broken", "cracked", "discolour", "discolor", "capping", "lamination", "sticking", "mottling", "odour", "odor", "clump", "caking", "crumbl", "crushed", "powder", "softened", "melted", "stuck together")),
+    # Defects of the packaging - phrased as failures, not as container nouns.
+    (ComplaintCategory.PACKAGING, ("seal not adhered", "seal loose", "seal failure", "not sealed", "unsealed", "leak", "closure defect", "cap loose", "packaging damaged", "carton damaged", "blister damaged", "container closure", "poorly sealed", "damaged pack")),
     (ComplaintCategory.SHIPPING, ("cold chain", "temperature excursion", "in transit", "shipment", "logistics", "pallet", "short shipped", "damaged on arrival")),
     (ComplaintCategory.DOCUMENTATION, ("certificate of analysis", "coa", "msds", "missing document", "batch record")),
-    (ComplaintCategory.PRODUCT_QUALITY, ("chipped", "broken", "cracked", "discolour", "discolor", "capping", "lamination", "sticking", "mottling", "odour", "odor", "clump", "caking", "crumbl")),
 ]
 
 CRITICAL_KEYWORDS = (
@@ -62,10 +69,37 @@ ISO_DATE_RE = re.compile(r"\b(20\d{2})-(\d{2})-(\d{2})\b")
 QTY_RE = re.compile(r"\b(\d{1,6})\s*(tablets?|capsules?|vials?|bottles?|units?|packs?|strips?|blisters?|kg|g|ml|l)\b", re.I)
 
 
+# Regex word boundary, as a module constant: writing the escape inline kept
+# getting mangled by shell heredocs, which turned it into a literal 0x08.
+WORD_START = "\\b"
+
+
+@lru_cache(maxsize=512)
+def _keyword_pattern(keyword: str) -> re.Pattern[str]:
+    """Compile a keyword into a leading-word-boundary matcher.
+
+    Plain substring matching produced two real misclassifications:
+      "cap"  matched "capsules"  -> discoloured capsules filed as Packaging
+      "oos"  matched "loose"     -> a loose seal filed as Out of Specification
+
+    A leading word boundary fixes both. A trailing one would break the stem
+    keywords - "contaminat", "discolour", "crumbl" are meant to match
+    "contamination", "discoloured", "crumbling" - so only the front is anchored.
+    """
+    if not keyword[:1].isalnum():
+        # Keywords like "% w/w" have no word boundary to anchor to.
+        return re.compile(re.escape(keyword))
+    return re.compile(WORD_START + re.escape(keyword))
+
+
+def _matches(low: str, keywords: tuple[str, ...]) -> list[str]:
+    return [k for k in keywords if _keyword_pattern(k).search(low)]
+
+
 def _find_category(text: str) -> str:
     low = text.lower()
     for category, keywords in CATEGORY_KEYWORDS:
-        if any(k in low for k in keywords):
+        if _matches(low, keywords):
             return category.value
     return ComplaintCategory.OTHER.value
 
@@ -77,6 +111,22 @@ def _find_product_type(text: str) -> str:
     if any(k in low for k in ("tablet", "capsule", "syrup", "injection", "vial", "cream", "ointment", "suspension", "blister")):
         return ProductType.FDF.value
     return ProductType.UNKNOWN.value
+
+
+def _find_site_block(text: str) -> str:
+    """Infer the manufacturing block from the dosage form."""
+    low = text.lower()
+    if any(k in low for k in ("vial", "ampoule", "injection", "injectable", "parenteral", "infusion")):
+        return "Block B - Sterile Injectables"
+    if any(k in low for k in ("tablet", "capsule", "caplet", "blister")):
+        return "Block A - Oral Solids"
+    if any(k in low for k in ("syrup", "suspension", "solution", "cream", "ointment", "gel")):
+        return "Block D - Liquids & Semi-solids"
+    if any(k in low for k in ("api", "drug substance", "intermediate", "kg drum")):
+        return "Block C - API Synthesis"
+    if any(k in low for k in ("carton", "label", "artwork", "leaflet", "shipper")):
+        return "Block E - Packaging & Labelling"
+    return "Not Determined"
 
 
 def extract(text: str) -> ExtractedComplaint:
@@ -92,9 +142,10 @@ def extract(text: str) -> ExtractedComplaint:
         "complainant_email": email.group(0) if email else None,
         "complainant_phone": phone.group(0).strip() if phone else None,
         "date_of_complaint": iso_date.group(0) if iso_date else None,
-        "quantity_complained": qty.group(0) if qty else None,
+        "affected_quantity": qty.group(0) if qty else None,
         "complaint_category": _find_category(text),
         "product_type": _find_product_type(text),
+        "originating_site_block": _find_site_block(text),
         "complaint_description": " ".join(text.split())[:1200],
     }
     populated = sum(1 for v in found.values() if v)
@@ -111,9 +162,9 @@ def assess_risk(text: str, category: str | None) -> RiskAssessmentResult:
     low = (text or "").lower()
     cat = category or ""
 
-    critical_hits = [k for k in CRITICAL_KEYWORDS if k in low]
-    major_hits = [k for k in MAJOR_KEYWORDS if k in low]
-    minor_hits = [k for k in MINOR_KEYWORDS if k in low]
+    critical_hits = _matches(low, CRITICAL_KEYWORDS)
+    major_hits = _matches(low, MAJOR_KEYWORDS)
+    minor_hits = _matches(low, MINOR_KEYWORDS)
 
     if critical_hits or cat in (ComplaintCategory.ADVERSE_EVENT.value, ComplaintCategory.COUNTERFEIT.value):
         severity, score = Severity.CRITICAL, 88
@@ -144,10 +195,21 @@ def assess_risk(text: str, category: str | None) -> RiskAssessmentResult:
 
     from app.core.enums import SEVERITY_TAT_DAYS
 
+    next_action = {
+        Severity.CRITICAL: "Escalate to QA Head & initiate health hazard evaluation",
+        Severity.MAJOR: "Route to QA Investigation & issue replacement",
+        Severity.MINOR: "Log for trending & acknowledge to customer",
+    }[severity]
+
     return RiskAssessmentResult(
         severity=severity.value,
         risk_score=score,
         confidence=0.35,
+        suggested_next_action=next_action,
+        initial_risk_assessment=(
+            f"Rule-based triage only. {reason} Requires QA confirmation, retention "
+            "sample examination and batch record review."
+        ),
         patient_safety_impact="Not evaluated by rules - requires QA assessment.",
         gxp_impact="GMP-relevant: complaint records are subject to 21 CFR 211.198.",
         regulatory_reportable=reportable,
@@ -262,11 +324,11 @@ def capa(severity: str | None) -> list[CapaAction]:
 
 
 def summary(data: dict) -> str:
-    org = data.get("complainant_organisation") or data.get("complainant_name") or "An unidentified complainant"
+    org = data.get("customer_name") or data.get("complainant_name") or "An unidentified complainant"
     product = data.get("product_name") or "an unspecified product"
     batch = data.get("batch_number")
     batch_txt = f"batch {batch}" if batch else "an unrecorded batch number"
-    qty = data.get("quantity_complained")
+    qty = data.get("affected_quantity")
     qty_txt = f" affecting {qty}" if qty else ""
     category = data.get("complaint_category") or "an unclassified defect"
     severity = data.get("severity") or "unclassified"
@@ -280,19 +342,24 @@ def summary(data: dict) -> str:
 def completeness(data: dict) -> CompletenessResult:
     from app.core.enums import MANDATORY_FIELDS
 
-    recommended = ["complainant_email", "quantity_complained", "expiry_date", "dosage_form", "country"]
+    recommended = ["affected_quantity", "expiry_date", "manufacturing_date",
+                   "originating_site_block", "product_strength"]
     missing_mandatory = [f for f in MANDATORY_FIELDS if not data.get(f)]
     missing_recommended = [f for f in recommended if not data.get(f)]
 
     question_bank = {
         "batch_number": "Please provide the batch/lot number printed on the carton and on the immediate container.",
         "product_name": "Please confirm the exact product name and strength as printed on the pack.",
-        "complainant_organisation": "Please confirm the name and address of the organisation raising the complaint.",
+        "customer_name": "Please confirm the name of the organisation raising the complaint.",
+        "complaint_source": "Was this raised by a pharmacy, hospital, distributor or directly by the customer?",
+        "product_strength": "Please confirm the product strength printed on the pack.",
+        "manufacturing_date": "Please provide the manufacturing date printed on the pack.",
+        "originating_site_block": "Which dosage form is this, so the originating block can be assigned?",
         "complainant_name": "Please provide the name and contact details of the person reporting the issue.",
         "complaint_description": "Please describe what was observed, when it was first noticed, and how many units are affected.",
         "date_of_complaint": "On what date was the problem first observed?",
         "complaint_category": "Please clarify the nature of the defect so it can be categorised.",
-        "quantity_complained": "How many units are affected, and out of what total quantity received?",
+        "affected_quantity": "How many units are affected, and out of what total quantity received?",
         "expiry_date": "Please provide the expiry date printed on the pack.",
     }
     questions = [question_bank[f] for f in (missing_mandatory + missing_recommended) if f in question_bank][:5]

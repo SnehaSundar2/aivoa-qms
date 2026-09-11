@@ -59,10 +59,20 @@ def test_non_complaint_short_circuits_to_reject():
     assert not result.capa
 
 
-def test_run_is_flagged_degraded_without_an_api_key():
-    """An operator must never mistake a rule-based result for an AI assessment."""
+def test_run_is_flagged_degraded_without_an_api_key(monkeypatch):
+    """An operator must never mistake a rule-based result for an AI assessment.
+
+    Forces the no-key condition rather than assuming it: a developer with a
+    working .env would otherwise see this pass for the wrong reason, or fail.
+    """
+    from app.agent import llm
+
+    monkeypatch.setattr(llm.settings, "groq_api_key", "")
+    llm._client_cache.clear()
+
     result = run_copilot(PARTICULATE_EMAIL)
     assert result.degraded is True
+    assert any("rules" in node for node in result.trace)
 
 
 def test_operator_values_override_extraction_in_the_merged_record():
@@ -129,32 +139,90 @@ def test_extraction_never_invents_a_batch_number():
     [
         ("visible fungal growth in the bottle", "Microbial Contamination"),
         ("black particles floating in the vial", "Foreign Matter / Particulate"),
-        # Regression: "particles" alone used to fall through to "Other".
         ("small floating particles in four vials", "Foreign Matter / Particulate"),
         ("visible particulate matter", "Foreign Matter / Particulate"),
         ("assay result out of specification", "Analytical / Out of Specification"),
         ("the expiry date on the label is illegible", "Labelling / Artwork Defect"),
         ("temperature excursion during transit", "Shipping, Storage & Logistics"),
         ("patient developed a rash after taking it", "Adverse Event / Medical"),
+        # The defect decides the category, not the container it is found in.
+        ("12 discolored capsules in a sealed bottle", "Product Quality Defect"),
+        ("chipped tablets in the blister", "Product Quality Defect"),
+        ("induction seal not adhered to the bottle neck", "Packaging Defect"),
+        ("three bottles received with the seal loose", "Packaging Defect"),
     ],
 )
 def test_category_keyword_routing(text, expected):
     assert heuristics.extract(text).complaint_category == expected
 
 
+@pytest.mark.parametrize(
+    "text,must_not_be",
+    [
+        # "cap" once matched "capsules" and sent these to Packaging.
+        ("discoloured capsules", "Packaging Defect"),
+        ("the capsules were crushed", "Packaging Defect"),
+        # "oos" once matched "loose".
+        ("the closure was loose", "Analytical / Out of Specification"),
+        ("loose powder in the carton", "Analytical / Out of Specification"),
+    ],
+)
+def test_keywords_do_not_match_inside_other_words(text, must_not_be):
+    """Keywords are matched on word boundaries, not as bare substrings."""
+    assert heuristics.extract(text).complaint_category != must_not_be
+
+
+def test_word_boundary_allows_stems_but_not_mid_word_matches():
+    """Only the FRONT of a keyword is anchored.
+
+    That is what the category table needs: stem keywords such as "contaminat"
+    must still match "contamination", while "oos" must stop matching "loose".
+
+    Note the boundary does NOT stop a keyword matching the start of a longer
+    word - "cap" still matches "capsules" - so the capsule misclassification
+    was fixed by dropping "cap" from the table, not by this anchor. Asserted
+    here so the distinction is not lost.
+    """
+    from app.agent.heuristics import _matches
+
+    # Stems keep working.
+    assert _matches("visible contamination observed", ("contaminat",))
+    assert _matches("the tablets were discoloured", ("discolour",))
+    assert _matches("patient was hospitalised", ("hospitalis",))
+
+    # Mid-word matches are gone: "oos" no longer fires inside "loose".
+    assert not _matches("the seal was loose", ("oos",))
+    assert _matches("the result was oos", ("oos",))
+
+    # Word-START matches remain, which is why "cap" had to be removed.
+    assert _matches("discoloured capsules", ("cap",))
+
+
+def test_site_block_is_inferred_from_dosage_form():
+    assert heuristics.extract("particles in the vial").originating_site_block == (
+        "Block B - Sterile Injectables"
+    )
+    assert heuristics.extract("chipped tablets").originating_site_block == (
+        "Block A - Oral Solids"
+    )
+    assert heuristics.extract("nothing identifiable here").originating_site_block == (
+        "Not Determined"
+    )
+
+
 def test_completeness_flags_missing_mandatory_fields():
     result = heuristics.completeness({"product_name": "X"})
     assert result.is_complete is False
     assert "batch_number" in result.missing_mandatory
+    assert "customer_name" in result.missing_mandatory
     assert result.clarifying_questions
 
 
 def test_completeness_passes_a_full_record():
-    result = heuristics.completeness({
-        "complainant_name": "A", "complainant_organisation": "B",
-        "product_name": "C", "batch_number": "D",
-        "complaint_category": "Packaging Defect",
-        "complaint_description": "E", "date_of_complaint": "2026-01-01",
-    })
+    from app.core.enums import MANDATORY_FIELDS
+
+    record = {field: "value" for field in MANDATORY_FIELDS}
+    result = heuristics.completeness(record)
+
     assert result.is_complete is True
     assert result.missing_mandatory == []
