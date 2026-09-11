@@ -856,3 +856,24 @@ select.is-unknown-value {
   border-color: var(--major);
   background: var(--major-soft);
 }
+
+/* A field the copilot just changed on the operator's instruction. */
+.field.just-changed input,
+.field.just-changed select,
+.field.just-changed textarea {
+  animation: field-flash 1.8s ease-out;
+}
+@keyframes field-flash {
+  0%, 35% {
+    background: #e6f7ee;
+    border-color: #58b98a;
+    box-shadow: 0 0 0 3px rgba(29, 122, 79, 0.13);
+  }
+  100% { background: inherit; border-color: inherit; box-shadow: none; }
+}
+
+.tool-chip.is-edit {
+  background: #eaf0ff;
+  color: var(--brand-dark);
+  border-color: var(--brand-border);
+}

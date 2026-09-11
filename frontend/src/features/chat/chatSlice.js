@@ -87,6 +87,7 @@ function pushAssistant(state, action) {
     role: 'assistant',
     content: action.payload.reply,
     toolCalled: action.payload.tool_called,
+    fieldsChanged: action.payload.fields_changed ?? [],
     degraded: action.payload.degraded,
     latencyMs: action.payload.latency_ms,
   })

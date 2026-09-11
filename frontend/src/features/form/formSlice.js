@@ -123,24 +123,45 @@ const initialState = {
   saveStatus: 'idle',
   saveError: null,
   savedComplaint: null,
+  /** Fields the last agent turn changed, for a brief highlight. */
+  recentlyChanged: [],
 }
 
-/** Apply an agent prefill without clobbering anything the operator owns. */
-function applyPrefill(state, prefill) {
-  if (!prefill) return
+/**
+ * Apply an agent update to the form.
+ *
+ * `overwrite` is the whole difference between the two tools:
+ *
+ *   log_complaint  - fills gaps. A field the operator typed is left alone,
+ *                    because the agent is guessing and they are not.
+ *   edit_complaint - overwrites. The operator explicitly asked for the change,
+ *                    so refusing it because they had typed there before would
+ *                    make the tool useless exactly when it is most wanted.
+ */
+function applyPrefill(state, prefill, { overwrite = false } = {}) {
+  if (!prefill) return []
   const filled = []
 
   Object.entries(prefill).forEach(([field, value]) => {
     if (!(field in state.values)) return
-    if (value === null || value === undefined || value === '') return
-    // The operator's own input always wins.
-    if (state.userEdited.includes(field)) return
+    // An edit may deliberately blank a field; a prefill may not.
+    const isClearing = overwrite && value === ''
+    if (!isClearing && (value === null || value === undefined || value === '')) return
+    if (!overwrite && state.userEdited.includes(field)) return
+    if (state.values[field] === value) return
 
     state.values[field] = value
     filled.push(field)
+
+    if (overwrite) {
+      // The value now came from the agent, at the operator's instruction, so
+      // it is no longer "theirs" for gap-filling purposes.
+      state.userEdited = state.userEdited.filter((f) => f !== field)
+    }
   })
 
   state.aiFilled = [...new Set([...state.aiFilled, ...filled])]
+  return filled
 }
 
 const formSlice = createSlice({
@@ -167,6 +188,9 @@ const formSlice = createSlice({
     },
 
     resetForm: () => ({ ...initialState, values: { ...EMPTY_FORM } }),
+    clearRecentlyChanged(state) {
+      state.recentlyChanged = []
+    },
     dismissSaveError(state) {
       state.saveError = null
       if (state.saveStatus === 'failed') state.saveStatus = 'idle'
@@ -181,9 +205,14 @@ const formSlice = createSlice({
     }
 
     // A chat turn carries form_update; the older intake thunks carry
-    // form_prefill. Both mean the same thing to this slice.
+    // form_prefill. Both mean the same thing to this slice, except that an
+    // edit_complaint turn sets `overwrite`.
     const prefillFromChat = (state, action) => {
-      applyPrefill(state, action.payload?.form_update)
+      const payload = action.payload ?? {}
+      const changed = applyPrefill(state, payload.form_update, {
+        overwrite: Boolean(payload.overwrite),
+      })
+      state.recentlyChanged = changed
     }
 
     builder
@@ -208,13 +237,19 @@ const formSlice = createSlice({
   },
 })
 
-export const { setField, rejectSuggestion, resetForm, dismissSaveError } =
-  formSlice.actions
+export const {
+  setField,
+  rejectSuggestion,
+  resetForm,
+  dismissSaveError,
+  clearRecentlyChanged,
+} = formSlice.actions
 export default formSlice.reducer
 
 // --- selectors ---
 export const selectValues = (state) => state.form.values
 export const selectAiFilled = (state) => state.form.aiFilled
+export const selectRecentlyChanged = (state) => state.form.recentlyChanged
 export const selectIsAiFilled = (field) => (state) =>
   state.form.aiFilled.includes(field)
 export const selectSaveStatus = (state) => state.form.saveStatus

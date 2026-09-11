@@ -200,6 +200,65 @@ class ExtractedComplaint(BaseModel):
     fields_not_found: List[str] = Field(default_factory=list)
 
 
+class ComplaintEdit(BaseModel):
+    """Arguments of the `edit_complaint` tool.
+
+    Only the fields the operator actually asked to change are set; everything
+    else stays null and is left alone. That is the whole contract - a tool
+    that returned the full record would silently revert any field the model
+    happened to reproduce imperfectly.
+
+    Unlike `log_complaint`, values here DO overwrite what the operator typed,
+    because the operator is the one asking for the change.
+    """
+
+    # --- 1. Origin & customer details ---
+    complaint_source: Optional[str] = Field(None, description="Pharmacy, Hospital, Distributor, Wholesaler, Regulatory Authority, Direct Customer, Internal, Other")
+    customer_name: Optional[str] = None
+    complainant_name: Optional[str] = None
+    complainant_email: Optional[str] = None
+    complainant_phone: Optional[str] = None
+    country: Optional[str] = None
+
+    # --- 2. Product & batch identification ---
+    product_name: Optional[str] = Field(None, description="Product name without the strength")
+    product_strength: Optional[str] = None
+    batch_number: Optional[str] = Field(None, description="Transcribed exactly as given")
+    affected_quantity: Optional[str] = Field(None, description="With units, e.g. '20 capsules'")
+    manufacturing_date: Optional[str] = Field(None, description="Verbatim, e.g. 'March 2026'")
+    expiry_date: Optional[str] = Field(None, description="Verbatim, e.g. 'February 2028'")
+
+    # --- 3. Facility & material impact ---
+    originating_site_block: Optional[str] = Field(None, description="Block A - Oral Solids, Block B - Sterile Injectables, Block C - API Synthesis, Block D - Liquids & Semi-solids, Block E - Packaging & Labelling, External / Contract Site")
+    impacted_npm: Optional[str] = None
+
+    # --- 4. Defect analysis ---
+    complaint_category: Optional[str] = Field(None, description="Short formal label, e.g. 'Product Defect - Discoloration'")
+    complaint_description: Optional[str] = Field(None, description="Rewrite the full description only if the defect itself changed")
+
+    # --- AI Copilot risk assessment ---
+    severity: Optional[str] = Field(None, description="Critical, Major or Minor - only if the operator explicitly sets it")
+    suggested_next_action: Optional[str] = None
+    initial_risk_assessment: Optional[str] = None
+
+    # --- control ---
+    fields_to_clear: List[str] = Field(
+        default_factory=list,
+        description="Field names the operator asked to blank out, e.g. after "
+                    "'remove the expiry date'",
+    )
+    reassess_risk: bool = Field(
+        False,
+        description="True when the change alters the defect itself - a different "
+                    "category, a different product, many more units affected - so "
+                    "the severity must be reconsidered. False for corrections to "
+                    "names, dates or reference numbers.",
+    )
+    change_summary: str = Field(
+        "", description="One short clause naming what changed, for the audit trail"
+    )
+
+
 class RootCause(BaseModel):
     cause: str
     category: str = Field(..., description="Ishikawa bucket: Man, Machine, Material, Method, Measurement, Environment")
@@ -318,9 +377,15 @@ class ChatResponse(BaseModel):
     """What the copilot sends back to the chat panel."""
 
     reply: str = Field(..., description="The assistant's conversational message")
-    # Present only when the log_complaint tool ran on this turn.
+    # Which tool ran this turn: "log_complaint", "edit_complaint", or None.
     tool_called: Optional[str] = None
     form_update: dict[str, Any] = Field(default_factory=dict)
+    fields_changed: List[str] = Field(
+        default_factory=list,
+        description="Fields this turn changed, for highlighting in the form",
+    )
+    # An edit overwrites operator-entered values; a log fills gaps only.
+    overwrite: bool = False
     copilot: Optional[CopilotResult] = None
     form_complete: bool = False
     degraded: bool = False

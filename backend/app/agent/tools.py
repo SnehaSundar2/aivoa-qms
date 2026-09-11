@@ -22,9 +22,9 @@ import logging
 from typing import Any
 
 from app.agent.llm import LLMUnavailable, structured_call
-from app.agent.prompts import EXTRACTION_PROMPT
+from app.agent.prompts import EDIT_PROMPT, EXTRACTION_PROMPT
 from app.core.config import settings
-from app.schemas import ExtractedComplaint
+from app.schemas import ComplaintEdit, ExtractedComplaint
 
 logger = logging.getLogger(__name__)
 
@@ -93,3 +93,86 @@ def should_log_complaint(text: str) -> bool:
         "leak", "seal", "label", "missing", "short", "excursion",
     )
     return any(signal in low for signal in complaint_signals)
+
+
+EDIT_COMPLAINT_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "edit_complaint",
+        "description": (
+            "Correct or update fields on the complaint already shown in the form, "
+            "including the AI risk assessment. Call this when the user is amending "
+            "an existing record - 'change the batch to X', 'the quantity is actually "
+            "20', 'set severity to Critical', 'remove the expiry date'. Do not call "
+            "it when the form is empty, or when the user is describing a new and "
+            "different complaint."
+        ),
+        "parameters": ComplaintEdit.model_json_schema(),
+    },
+}
+
+# Fields the operator may edit. Anything outside this set is refused - the tool
+# must not be able to reach workflow state such as status or assignment.
+EDITABLE_FIELDS = frozenset(ComplaintEdit.model_fields) - {
+    "fields_to_clear",
+    "reassess_risk",
+    "change_summary",
+}
+
+
+def run_edit_complaint(message: str, current_form: dict[str, Any]) -> ComplaintEdit:
+    """Execute the tool: an instruction plus the current record, changes out.
+
+    Raises `LLMUnavailable` so the caller can report the failure rather than
+    guessing at an edit. There is deliberately no rule-based fallback here:
+    misreading "make it 20" without a model is far more likely to corrupt the
+    record than to help.
+    """
+    shown = {
+        field: value
+        for field, value in current_form.items()
+        if field in EDITABLE_FIELDS and value not in (None, "", [], False)
+    }
+
+    return structured_call(
+        EDIT_PROMPT,
+        "The complaint record currently on screen:\n"
+        + json.dumps(shown, indent=2, default=str)
+        + f"\n\nThe operator says:\n{message[:2000]}",
+        ComplaintEdit,
+        model=settings.groq_model,
+    )
+
+
+# Phrases that mean "change what is already there" rather than "log something
+# new". Checked only when the form is already populated.
+_EDIT_SIGNALS = (
+    "change", "update", "correct", "fix", "amend", "revise", "edit",
+    "actually", "instead", "should be", "should have", "not ", "isn't",
+    "is wrong", "incorrect", "mistake", "typo", "make it", "set the",
+    "set severity", "replace", "remove the", "clear the", "delete the",
+    "re-assess", "reassess", "re-run", "rerun", "downgrade", "upgrade",
+    "it is ", "it's ", "sorry",
+)
+
+
+def should_edit_complaint(text: str, current_form: dict[str, Any]) -> bool:
+    """Decide whether this message edits the record on screen.
+
+    Deterministic on purpose: an LLM router here would be a third model call
+    per turn to answer a question the wording usually settles.
+    """
+    populated = any(
+        current_form.get(field) for field in ("product_name", "batch_number", "customer_name")
+    )
+    if not populated:
+        return False  # nothing to edit yet
+
+    low = (text or "").lower()
+
+    # A message carrying a full new complaint is a new log, not an edit, even
+    # with a populated form - the operator has moved on to the next one.
+    if low.count("batch") and ("please log" in low or "log this" in low or "new complaint" in low):
+        return False
+
+    return any(signal in low for signal in _EDIT_SIGNALS)

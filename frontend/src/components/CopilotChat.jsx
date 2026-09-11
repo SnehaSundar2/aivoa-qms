@@ -146,9 +146,19 @@ function Message({ message }) {
         {message.content}
         {message.toolCalled && (
           <div className="msg-meta">
-            <span className="tool-chip">
+            <span
+              className={`tool-chip${
+                message.toolCalled === 'edit_complaint' ? ' is-edit' : ''
+              }`}
+            >
               <SparkIcon /> {message.toolCalled}
             </span>
+            {message.fieldsChanged?.length > 0 && (
+              <span className="msg-latency">
+                {message.fieldsChanged.length} field
+                {message.fieldsChanged.length === 1 ? '' : 's'} updated
+              </span>
+            )}
             {message.degraded && <span className="tool-chip is-warn">rule-based</span>}
             {message.latencyMs != null && (
               <span className="msg-latency">{(message.latencyMs / 1000).toFixed(1)}s</span>

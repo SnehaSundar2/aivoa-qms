@@ -30,14 +30,21 @@ function useField(name) {
   const dispatch = useDispatch()
   const value = useSelector((state) => state.form.values[name])
   const isAi = useSelector((state) => state.form.aiFilled.includes(name))
+  const justChanged = useSelector((state) =>
+    state.form.recentlyChanged.includes(name),
+  )
   const onChange = (newValue) =>
     dispatch(setField({ field: name, value: newValue }))
-  return { value, isAi, onChange }
+  return { value, isAi, justChanged, onChange }
 }
 
-function Wrapper({ name, label, required, hint, isAi, children }) {
+function Wrapper({ name, label, required, hint, isAi, justChanged, children }) {
   return (
-    <div className={`field${isAi ? ' is-ai-filled' : ''}`}>
+    <div
+      className={`field${isAi ? ' is-ai-filled' : ''}${
+        justChanged ? ' just-changed' : ''
+      }`}
+    >
       <label className="field-label" htmlFor={name}>
         {label}
         {required && <span className="required-dot">*</span>}
@@ -50,9 +57,16 @@ function Wrapper({ name, label, required, hint, isAi, children }) {
 }
 
 export function TextField({ name, label, required, hint, type = 'text', placeholder }) {
-  const { value, isAi, onChange } = useField(name)
+  const { value, isAi, justChanged, onChange } = useField(name)
   return (
-    <Wrapper name={name} label={label} required={required} hint={hint} isAi={isAi}>
+    <Wrapper
+      name={name}
+      label={label}
+      required={required}
+      hint={hint}
+      isAi={isAi}
+      justChanged={justChanged}
+    >
       <input
         id={name}
         type={type}
@@ -65,9 +79,16 @@ export function TextField({ name, label, required, hint, type = 'text', placehol
 }
 
 export function TextArea({ name, label, required, hint, rows = 4, placeholder }) {
-  const { value, isAi, onChange } = useField(name)
+  const { value, isAi, justChanged, onChange } = useField(name)
   return (
-    <Wrapper name={name} label={label} required={required} hint={hint} isAi={isAi}>
+    <Wrapper
+      name={name}
+      label={label}
+      required={required}
+      hint={hint}
+      isAi={isAi}
+      justChanged={justChanged}
+    >
       <textarea
         id={name}
         rows={rows}
@@ -87,7 +108,7 @@ export function SelectField({
   hint,
   placeholder = 'Select…',
 }) {
-  const { value, isAi, onChange } = useField(name)
+  const { value, isAi, justChanged, onChange } = useField(name)
 
   // A value outside the option list would render as a blank select while
   // still counting as populated - the operator sees an empty field and
@@ -101,6 +122,7 @@ export function SelectField({
       required={required}
       hint={isUnknown ? `"${value}" is not a recognised option - please correct it` : hint}
       isAi={isAi}
+      justChanged={justChanged}
     >
       <select
         id={name}
@@ -121,9 +143,16 @@ export function SelectField({
 }
 
 export function DateField({ name, label, required, hint }) {
-  const { value, isAi, onChange } = useField(name)
+  const { value, isAi, justChanged, onChange } = useField(name)
   return (
-    <Wrapper name={name} label={label} required={required} hint={hint} isAi={isAi}>
+    <Wrapper
+      name={name}
+      label={label}
+      required={required}
+      hint={hint}
+      isAi={isAi}
+      justChanged={justChanged}
+    >
       <input
         id={name}
         type="date"
@@ -135,9 +164,9 @@ export function DateField({ name, label, required, hint }) {
 }
 
 export function CheckField({ name, label, hint }) {
-  const { value, isAi, onChange } = useField(name)
+  const { value, isAi, justChanged, onChange } = useField(name)
   return (
-    <div className="field">
+    <div className={`field${justChanged ? ' just-changed' : ''}`}>
       <label className="checkbox" htmlFor={name}>
         <input
           id={name}
