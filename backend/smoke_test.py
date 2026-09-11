@@ -118,7 +118,19 @@ def main() -> int:
         record(FAIL, "tool did not fire", f"tool_called={turn.get('tool_called')}")
 
     if turn.get("degraded"):
-        record(WARN, "run was degraded", "rule-based fallback was used")
+        # Distinguish "out of tokens" from every other reason. They look
+        # identical in the output but mean completely different things: one is
+        # a wall you wait out, the other is a bug.
+        quota = get(f"{base}/api/ai/health").get("quota_paused_seconds")
+        if quota:
+            record(
+                WARN,
+                "run was degraded: GROQ QUOTA EXHAUSTED",
+                f"model calls paused, retrying every 30s - the field warnings "
+                f"below are a consequence of this, not separate failures",
+            )
+        else:
+            record(WARN, "run was degraded", "rule-based fallback was used")
 
     form = turn.get("form_update", {})
     expected = {
@@ -208,11 +220,24 @@ def main() -> int:
     # --- summary ----------------------------------------------------------
     failed = [r for r in results if r[0] == FAIL]
     warned = [r for r in results if r[0] == WARN]
+    quota_hit = any("QUOTA EXHAUSTED" in name for _s, name, _d in results)
+
     print("\n" + "=" * 62)
     print(
         f"{len(results) - len(failed) - len(warned)} passed, "
         f"{len(warned)} warnings, {len(failed)} failed"
     )
+
+    if quota_hit:
+        print(
+            "\nThe AI path could NOT be verified: the Groq token quota is spent,\n"
+            "so every extraction fell back to deterministic rules. The field\n"
+            "warnings above say nothing about whether the model works.\n"
+            "\n"
+            "Groq's free tier allows 200,000 tokens per day on a rolling window,\n"
+            "so headroom returns gradually rather than at a fixed reset time.\n"
+            "Re-run this once it has recovered; a full complaint needs 3-5k tokens."
+        )
     if failed:
         print("\nFailures:")
         for _, name, detail in failed:

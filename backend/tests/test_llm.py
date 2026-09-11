@@ -365,3 +365,74 @@ def test_breaker_does_not_open_for_a_per_minute_limit(monkeypatch):
     assert result.count == 1
     assert client.calls == 2, "a per-minute limit should be retried"
     assert llm.breaker_state()["open"] is False
+
+
+# --- half-open probing -----------------------------------------------------
+# The first version of the breaker had no way to discover that the quota had
+# recovered: it held the agent in rule-based mode for the full cooldown even
+# when a single call would have succeeded. Groq's free tier replenishes
+# continuously, so the wait it reports is a worst case, not a reset time.
+def test_no_probe_is_allowed_immediately_after_opening():
+    llm.reset_breaker()
+    llm._open_breaker("429 tokens per day (TPD). Please try again in 4m17.904s")
+
+    assert llm.breaker_state()["open"] is True
+    assert llm.breaker_state()["probe_due"] is False
+    assert not any(llm._claim_probe() for _ in range(7))
+
+
+def test_exactly_one_probe_is_claimed_when_one_is_due():
+    """A seven-node graph must cost one test call, not seven round trips."""
+    import time
+
+    llm.reset_breaker()
+    llm._open_breaker("429 tokens per day (TPD). Please try again in 4m17.904s")
+    llm._breaker_next_probe = time.time() - 1  # a probe is now due
+
+    claims = [llm._claim_probe() for _ in range(7)]
+    assert sum(claims) == 1
+
+
+def test_the_probe_interval_is_shorter_than_the_reported_wait():
+    """Otherwise the probe never happens before the cooldown expires anyway."""
+    llm.reset_breaker()
+    llm._open_breaker("429 tokens per day (TPD). Please try again in 4m17.904s")
+
+    state = llm.breaker_state()
+    assert state["seconds_remaining"] > llm._PROBE_INTERVAL_SECONDS
+
+
+def test_a_successful_probe_closes_the_breaker(monkeypatch):
+    import time
+
+    llm.reset_breaker()
+    llm._open_breaker("429 tokens per day (TPD). Please try again in 4m17.904s")
+    llm._breaker_next_probe = time.time() - 1
+
+    client = _FlakyClient("unused", fail_times=0, payload='{"name": "a", "count": 1}')
+    monkeypatch.setattr(llm, "_get_client", lambda model: client)
+
+    result = structured_call("sys", "user", _Schema, model="test-model")
+
+    assert result.count == 1
+    assert llm.breaker_state()["open"] is False, "a working call must close it"
+
+
+def test_a_failed_probe_leaves_the_breaker_open(monkeypatch):
+    import time
+
+    llm.reset_breaker()
+    llm._open_breaker("429 tokens per day (TPD). Please try again in 4m17.904s")
+    llm._breaker_next_probe = time.time() - 1
+
+    client = _FlakyClient(
+        "429 tokens per day (TPD). Please try again in 2m0s", fail_times=99, payload="{}"
+    )
+    monkeypatch.setattr(llm, "_get_client", lambda model: client)
+    monkeypatch.setattr(llm.time, "sleep", lambda _s: None)
+
+    with pytest.raises(LLMUnavailable):
+        structured_call("sys", "user", _Schema, model="test-model")
+
+    assert llm.breaker_state()["open"] is True
+    assert client.calls == 1, "the probe is a single call, not a retry storm"

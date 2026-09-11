@@ -18,6 +18,7 @@ import json
 import logging
 import random
 import re
+import threading
 import time
 from typing import Type, TypeVar
 
@@ -122,8 +123,21 @@ _RETRY_AFTER_RE = re.compile(
     r"try again in\s+(?:(\d+)m)?([\d.]+)s", re.I
 )
 _DEFAULT_COOLDOWN_SECONDS = 15 * 60
+
+# How long to wait before letting a single call through to test whether the
+# quota has come back. Groq's free tier replenishes continuously rather than
+# resetting at a fixed time, so the wait it reports ("try again in 6m11s") is
+# the worst case, not the actual recovery time. Without a probe the agent sits
+# in rule-based mode long after tokens are available again - which is exactly
+# what a half-open state is for, and what the first version of this was missing.
+_PROBE_INTERVAL_SECONDS = 30
+
 _breaker_open_until: float = 0.0
+_breaker_next_probe: float = 0.0
 _breaker_reason: str = ""
+# Guards the probe so that a burst of parallel graph nodes sends ONE test call,
+# not seven. FastAPI runs sync endpoints in a threadpool, so this is contended.
+_breaker_lock = threading.Lock()
 
 
 def _parse_retry_after(text: str) -> float:
@@ -137,31 +151,57 @@ def _parse_retry_after(text: str) -> float:
 
 
 def _open_breaker(text: str) -> None:
-    global _breaker_open_until, _breaker_reason
+    global _breaker_open_until, _breaker_next_probe, _breaker_reason
     cooldown = _parse_retry_after(text)
-    _breaker_open_until = time.time() + cooldown
+    now = time.time()
+    _breaker_open_until = now + cooldown
+    # Probe well before the full cooldown elapses; the quota usually returns
+    # sooner than Groq's worst-case estimate.
+    _breaker_next_probe = now + min(_PROBE_INTERVAL_SECONDS, cooldown)
     _breaker_reason = "daily token quota exhausted"
     logger.error(
-        "GROQ DAILY TOKEN QUOTA EXHAUSTED. Pausing all model calls for %.0fs; "
-        "the agent will run on deterministic rules until then. Raise the limit "
-        "at console.groq.com/settings/billing.",
-        cooldown,
+        "GROQ DAILY TOKEN QUOTA EXHAUSTED. Falling back to deterministic rules; "
+        "will retry with a single probe every %ss (Groq suggested waiting %.0fs, "
+        "but the free tier replenishes continuously). Raise the limit at "
+        "console.groq.com/settings/billing.",
+        _PROBE_INTERVAL_SECONDS, cooldown,
     )
 
 
 def breaker_state() -> dict:
-    remaining = max(0.0, _breaker_open_until - time.time())
+    now = time.time()
+    remaining = max(0.0, _breaker_open_until - now)
     return {
         "open": remaining > 0,
         "reason": _breaker_reason if remaining > 0 else "",
         "seconds_remaining": int(remaining),
+        "probe_due": remaining > 0 and now >= _breaker_next_probe,
     }
+
+
+def _claim_probe() -> bool:
+    """Take the right to make one test call, if one is due.
+
+    Returns True for exactly one caller. The rest keep failing fast, so a
+    seven-node graph costs one probe rather than seven round trips.
+    """
+    global _breaker_next_probe
+    now = time.time()
+    with _breaker_lock:
+        if _breaker_open_until <= now:
+            return True  # breaker already expired; not a probe at all
+        if now < _breaker_next_probe:
+            return False
+        # Push the next probe out so concurrent callers do not all claim one.
+        _breaker_next_probe = now + _PROBE_INTERVAL_SECONDS
+        return True
 
 
 def reset_breaker() -> None:
     """Clear the breaker - used by tests and after a successful call."""
-    global _breaker_open_until, _breaker_reason
+    global _breaker_open_until, _breaker_next_probe, _breaker_reason
     _breaker_open_until = 0.0
+    _breaker_next_probe = 0.0
     _breaker_reason = ""
 
 
@@ -238,10 +278,12 @@ def structured_call(
     model = model or settings.groq_model
 
     state = breaker_state()
-    if state["open"]:
+    if state["open"] and not _claim_probe():
         raise LLMUnavailable(
             f"{state['reason']} - retrying in {state['seconds_remaining']}s"
         )
+    if state["open"]:
+        logger.info("Quota breaker half-open: probing with one call to %s", model)
 
     client = _get_client(model)
 
