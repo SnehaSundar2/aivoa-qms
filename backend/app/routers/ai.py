@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.agent.graph import render_mermaid
-from app.agent.llm import check_models, llm_available
+from app.agent.llm import breaker_state, check_models, llm_available, usage_summary
 from app.core.config import settings
 from app.schemas import (
     ChatMessage,
@@ -46,6 +46,24 @@ def ai_health() -> dict:
             ),
         }
 
+    breaker = breaker_state()
+    if breaker["open"]:
+        return {
+            "llm_configured": True,
+            "usage": usage_summary(),
+            "extraction_model": settings.groq_model,
+            "reasoning_model": settings.groq_reasoning_model,
+            "mode": "rule-based fallback (quota exhausted)",
+            "models_available": True,
+            "quota_paused_seconds": breaker["seconds_remaining"],
+            "message": (
+                "Groq's daily token quota is exhausted. Model calls are paused for "
+                f"{breaker['seconds_remaining']}s and the agent is running on "
+                "deterministic rules. Raise the limit at "
+                "console.groq.com/settings/billing."
+            ),
+        }
+
     status = check_models()
 
     if status["missing"]:
@@ -64,6 +82,7 @@ def ai_health() -> dict:
 
     return {
         "llm_configured": True,
+        "usage": usage_summary(),
         "extraction_model": settings.groq_model,
         "reasoning_model": settings.groq_reasoning_model,
         "mode": mode,

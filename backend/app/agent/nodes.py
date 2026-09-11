@@ -142,6 +142,12 @@ def completeness_node(state: ComplaintAgentState) -> dict[str, Any]:
     if not base.missing_mandatory and not base.missing_recommended:
         return {"completeness": base.model_dump(), "trace": ["completeness"]}
 
+    # The question bank covers every mandatory field already, so the LLM pass
+    # only rephrases. Off by default: it is the least valuable call in the
+    # graph and the token budget is better spent on risk and root cause.
+    if not settings.llm_phrase_questions:
+        return {"completeness": base.model_dump(), "trace": ["completeness"]}
+
     try:
         refined = structured_call(
             prompts.COMPLETENESS_PROMPT,

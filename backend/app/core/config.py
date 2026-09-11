@@ -53,6 +53,10 @@ class Settings(BaseSettings):
     # Retries for transient Groq failures (json_validate_failed, 429, 5xx).
     llm_max_retries: int = 3
     llm_timeout_seconds: int = 60
+    # Use an LLM call to rephrase the completeness questions. The
+    # deterministic question bank already covers every mandatory field, so
+    # this is off by default to conserve the daily token budget.
+    llm_phrase_questions: bool = False
 
     # --- Uploads ------------------------------------------------------------
     upload_dir: str = "./uploads"

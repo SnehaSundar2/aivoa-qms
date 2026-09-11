@@ -5,19 +5,26 @@ One turn looks like this:
     user message
         |
         v
-    route: is this a complaint to log, or a question to answer?
+    cheap deterministic gate: could this be a complaint at all?
         |                                   |
+     no |                                   | maybe
         v                                   v
-    log_complaint tool                 answer directly
-    + full agent graph
-        |
-        v
-    conversational reply + form_update
+    answer directly                    the agent graph
+                                   (triage decides for real,
+                                    then log_complaint + assessment)
+                                            |
+                                            v
+                                 conversational reply + form_update
 
-The routing decision is the point of the tool: "log this complaint: ..."
-should populate the form, "what does Major severity mean?" should not. The
-model makes that call, and the answer is reported back to the UI as
-`tool_called` so the operator can see which happened.
+Routing happens in two stages on purpose. The gate here is keyword-based and
+only has to be right about the obvious cases - a plain question never reaches
+the graph. The real decision belongs to the graph's `triage` node, which has
+seen the extraction attempt. An LLM router at this level was duplicating that
+call for no added accuracy, which matters: Groq's free tier allows 200,000
+tokens per day and a full run makes several calls.
+
+Whichever path runs is reported to the UI as `tool_called`, so the operator
+can see whether the form was touched.
 """
 from __future__ import annotations
 
@@ -38,15 +45,6 @@ from app.services.copilot import run_copilot
 logger = logging.getLogger(__name__)
 
 
-class _Route(BaseModel):
-    """Whether this turn should call the log_complaint tool."""
-
-    call_log_complaint: bool = Field(
-        ..., description="True if the message describes a complaint to be logged"
-    )
-    reason: str = Field("", description="One short clause explaining the choice")
-
-
 class _Reply(BaseModel):
     reply: str
 
@@ -57,31 +55,6 @@ def _history_text(history: list[ChatMessage], limit: int = 6) -> str:
     recent = history[-limit:]
     lines = [f"{m.role}: {m.content[:500]}" for m in recent]
     return "Recent conversation:\n" + "\n".join(lines) + "\n\n"
-
-
-def _route(message: str, history: list[ChatMessage]) -> tuple[bool, bool]:
-    """Return `(should_call_tool, degraded)`."""
-    try:
-        decision = structured_call(
-            "You decide whether a message to a pharmaceutical QMS copilot is a "
-            "customer complaint that should be logged, or something else (a "
-            "question, a follow-up, a greeting).\n\n"
-            "Call the tool when the message reports a product defect, quality "
-            "issue or customer complaint - even if details are missing.\n"
-            "Do not call it for questions about the QMS, requests to explain "
-            "something, or messages about a complaint already logged.",
-            _history_text(history) + f"Message:\n{message}",
-            _Route,
-            model=settings.groq_model,
-        )
-        logger.info(
-            "Route: call_log_complaint=%s (%s)",
-            decision.call_log_complaint, decision.reason,
-        )
-        return decision.call_log_complaint, False
-    except LLMUnavailable as exc:
-        logger.info("Routing degraded: %s", exc)
-        return should_log_complaint(message), True
 
 
 def _compose_reply(
@@ -164,9 +137,12 @@ def handle_turn(
     """Process one chat turn."""
     started = time.perf_counter()
 
-    should_call, route_degraded = _route(message, history)
-
-    if not should_call:
+    # Cheap deterministic gate first. It only has to be right about the obvious
+    # cases - a clear question never reaches the graph, everything else does,
+    # and the graph's own triage node makes the real decision. An LLM router
+    # here duplicated that triage call for no added accuracy, and every avoided
+    # call is budget back.
+    if not should_log_complaint(message):
         reply, degraded = _answer_question(message, history, form)
         return ChatResponse(
             reply=reply,
@@ -174,7 +150,7 @@ def handle_turn(
             form_update={},
             copilot=None,
             form_complete=not _missing_mandatory({**form}),
-            degraded=degraded or route_degraded,
+            degraded=degraded,
             latency_ms=int((time.perf_counter() - started) * 1000),
         )
 
@@ -188,8 +164,8 @@ def handle_turn(
     )
 
     if not result.is_complaint:
-        # The graph's own triage disagreed with the router. Trust the graph -
-        # it saw the extraction attempt - and do not touch the form.
+        # The graph's triage disagreed with the gate. Trust the graph - it saw
+        # the extraction attempt - and leave the form alone.
         reply, degraded = _answer_question(message, history, form)
         return ChatResponse(
             reply=reply,
@@ -197,7 +173,7 @@ def handle_turn(
             form_update={},
             copilot=result,
             form_complete=False,
-            degraded=degraded or route_degraded or result.degraded,
+            degraded=degraded or result.degraded,
             latency_ms=int((time.perf_counter() - started) * 1000),
         )
 
@@ -211,7 +187,7 @@ def handle_turn(
         form_update=result.form_prefill,
         copilot=result,
         form_complete=not missing,
-        degraded=result.degraded or reply_degraded or route_degraded,
+        degraded=result.degraded or reply_degraded,
         latency_ms=int((time.perf_counter() - started) * 1000),
     )
 

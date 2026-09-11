@@ -23,6 +23,7 @@ from typing import Type, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
+from app.agent.schema_text import compact_schema
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -67,11 +68,101 @@ _PERMANENT_MARKERS = (
 )
 
 
+def _is_daily_cap(text: str) -> bool:
+    """True for a per-DAY quota, as opposed to a per-minute burst limit.
+
+    Groq reports both as 429. A per-minute limit clears in seconds and is
+    worth waiting for; a tokens-per-day cap will not clear for hours, so
+    retrying it just burns wall-clock time and delays the fallback. The
+    message names the window explicitly.
+    """
+    return "per day" in text or "tpd" in text or "rpd" in text
+
+
 def _is_transient(exc: Exception) -> bool:
     text = str(exc).lower()
     if any(marker in text for marker in _PERMANENT_MARKERS):
         return False
+    if _is_daily_cap(text):
+        return False
     return any(marker in text for marker in _TRANSIENT_MARKERS)
+
+
+# Running total for the process. Not persisted - it exists so the cost of a
+# run is visible in the log and on /api/ai/health rather than being a surprise
+# when the daily cap lands.
+_usage = {"calls": 0, "prompt_tokens": 0, "completion_tokens": 0}
+
+
+def record_usage(model: str, prompt_tokens: int, completion_tokens: int) -> None:
+    _usage["calls"] += 1
+    _usage["prompt_tokens"] += prompt_tokens
+    _usage["completion_tokens"] += completion_tokens
+    logger.info(
+        "Groq usage | %s | prompt=%s completion=%s | session total=%s tokens over %s calls",
+        model, prompt_tokens, completion_tokens,
+        _usage["prompt_tokens"] + _usage["completion_tokens"], _usage["calls"],
+    )
+
+
+def usage_summary() -> dict:
+    total = _usage["prompt_tokens"] + _usage["completion_tokens"]
+    return {**_usage, "total_tokens": total}
+
+
+# --- quota circuit breaker -------------------------------------------------
+# When the daily token cap is hit, EVERY node in the graph would otherwise
+# discover it independently: seven nodes, seven round trips, each waiting for
+# its own 429. That turned a degraded run into a 57-second degraded run.
+#
+# The first daily-cap error opens the breaker, and every later call fails
+# instantly without touching the network until it expires. Groq states how
+# long to wait in the error message, so use that when it is parseable.
+_RETRY_AFTER_RE = re.compile(
+    r"try again in\s+(?:(\d+)m)?([\d.]+)s", re.I
+)
+_DEFAULT_COOLDOWN_SECONDS = 15 * 60
+_breaker_open_until: float = 0.0
+_breaker_reason: str = ""
+
+
+def _parse_retry_after(text: str) -> float:
+    match = _RETRY_AFTER_RE.search(text)
+    if not match:
+        return _DEFAULT_COOLDOWN_SECONDS
+    minutes = int(match.group(1) or 0)
+    seconds = float(match.group(2) or 0)
+    # A small margin, and never longer than an hour - the cap may reset sooner.
+    return min(minutes * 60 + seconds + 5, 3600)
+
+
+def _open_breaker(text: str) -> None:
+    global _breaker_open_until, _breaker_reason
+    cooldown = _parse_retry_after(text)
+    _breaker_open_until = time.time() + cooldown
+    _breaker_reason = "daily token quota exhausted"
+    logger.error(
+        "GROQ DAILY TOKEN QUOTA EXHAUSTED. Pausing all model calls for %.0fs; "
+        "the agent will run on deterministic rules until then. Raise the limit "
+        "at console.groq.com/settings/billing.",
+        cooldown,
+    )
+
+
+def breaker_state() -> dict:
+    remaining = max(0.0, _breaker_open_until - time.time())
+    return {
+        "open": remaining > 0,
+        "reason": _breaker_reason if remaining > 0 else "",
+        "seconds_remaining": int(remaining),
+    }
+
+
+def reset_breaker() -> None:
+    """Clear the breaker - used by tests and after a successful call."""
+    global _breaker_open_until, _breaker_reason
+    _breaker_open_until = 0.0
+    _breaker_reason = ""
 
 
 class LLMUnavailable(RuntimeError):
@@ -145,15 +236,25 @@ def structured_call(
     own output plus the validation error and ask for a corrected object.
     """
     model = model or settings.groq_model
+
+    state = breaker_state()
+    if state["open"]:
+        raise LLMUnavailable(
+            f"{state['reason']} - retrying in {state['seconds_remaining']}s"
+        )
+
     client = _get_client(model)
 
-    schema_json = json.dumps(schema.model_json_schema(), indent=2)
+    # A field spec rather than model_json_schema(): same information, roughly a
+    # third of the tokens. Groq's free tier allows 200k tokens per DAY and the
+    # agent makes several calls per complaint, so the JSON Schema envelope was
+    # a material share of the budget.
     system = (
         f"{system_prompt}\n\n"
         "Reply with a single JSON object and nothing else - no prose, no code "
         "fences, no explanation outside the JSON.\n"
-        "The object MUST validate against this JSON Schema:\n"
-        f"{schema_json}\n"
+        "Fields:\n"
+        f"{compact_schema(schema)}\n"
         "Use null for anything the source does not state. Never invent batch "
         "numbers, dates, names or quantities."
     )
@@ -173,10 +274,13 @@ def structured_call(
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
                 if not _is_transient(exc) or call == attempts - 1:
-                    logger.warning(
-                        "Groq call failed (%s, attempt %s/%s): %s",
-                        model, call + 1, attempts, exc,
-                    )
+                    if _is_daily_cap(str(exc).lower()):
+                        _open_breaker(str(exc))
+                    else:
+                        logger.warning(
+                            "Groq call failed (%s, attempt %s/%s): %s",
+                            model, call + 1, attempts, exc,
+                        )
                     raise LLMUnavailable(str(exc)) from exc
 
                 # Jittered backoff so parallel graph branches do not retry in
@@ -192,8 +296,18 @@ def structured_call(
             raise LLMUnavailable(str(last_error))
 
         content = getattr(reply, "content", "") or ""
+
+        # Token accounting, so consumption is observable rather than guessed at.
+        usage = (getattr(reply, "response_metadata", None) or {}).get("token_usage") or {}
+        if usage:
+            record_usage(model, usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0))
+
         try:
-            return schema.model_validate(_extract_json(content))
+            validated = schema.model_validate(_extract_json(content))
+            # A successful call proves the quota is flowing again.
+            if _breaker_open_until:
+                reset_breaker()
+            return validated
         except (ValueError, ValidationError) as exc:
             logger.warning(
                 "Groq returned unusable JSON (attempt %s/2, model=%s): %s",

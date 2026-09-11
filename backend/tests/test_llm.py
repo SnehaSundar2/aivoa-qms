@@ -43,6 +43,14 @@ class _StubClient:
         return _Reply(self.replies.pop(0))
 
 
+@pytest.fixture(autouse=True)
+def _clean_breaker():
+    """The breaker is module state - reset it around every test."""
+    llm.reset_breaker()
+    yield
+    llm.reset_breaker()
+
+
 @pytest.fixture
 def stub(monkeypatch):
     def _install(*replies: str) -> _StubClient:
@@ -93,7 +101,59 @@ def test_schema_is_injected_into_the_system_prompt(stub):
 
     system = client.calls[0][0][1]
     assert "BE A ROBOT" in system
-    assert '"count"' in system, "the JSON schema must reach the model"
+    # Sent as a compact field spec, not model_json_schema() - same information,
+    # about a third of the tokens.
+    assert "count (integer, required)" in system
+    assert "name (string, required)" in system
+    assert "anyOf" not in system, "the verbose JSON Schema envelope must not be sent"
+
+
+def test_compact_schema_is_materially_smaller_than_json_schema():
+    """The reason the field spec exists: Groq's free tier is 200k tokens/day."""
+    import json
+
+    from app.agent.schema_text import compact_schema
+    from app.schemas import ExtractedComplaint
+
+    verbose = json.dumps(ExtractedComplaint.model_json_schema(), indent=2)
+    tight = compact_schema(ExtractedComplaint)
+
+    assert len(tight) < len(verbose) / 2, "should be at least twice as compact"
+
+    # ...and it must still carry every field and its guidance.
+    for field in ExtractedComplaint.model_fields:
+        assert field in tight
+    assert "CHANNEL the complaint arrived through" in tight
+
+
+def test_compact_schema_expands_nested_models():
+    from pydantic import BaseModel
+
+    from app.agent.schema_text import compact_schema
+    from app.schemas import RootCause
+
+    class _List(BaseModel):
+        root_causes: list[RootCause]
+
+    text = compact_schema(_List)
+    assert "array of RootCause" in text
+    assert "RootCause fields:" in text
+    assert "investigation_step" in text
+
+
+def test_daily_quota_is_not_retried(monkeypatch):
+    """A per-day cap will not clear for hours; retrying only delays the fallback."""
+    from app.agent.llm import _is_transient
+
+    per_minute = (
+        "Error code: 429 - rate_limit_exceeded: Limit 30000 on tokens per minute (TPM)"
+    )
+    per_day = (
+        "Error code: 429 - rate_limit_exceeded: Limit 200000 on tokens per day (TPD)"
+    )
+
+    assert _is_transient(Exception(per_minute)) is True
+    assert _is_transient(Exception(per_day)) is False
 
 
 def test_structured_call_repairs_an_invalid_first_response(stub):
@@ -224,3 +284,84 @@ def test_transient_failure_eventually_gives_up(monkeypatch):
         structured_call("sys", "user", _Schema, model="test-model")
 
     assert client.calls == 3, "max_retries + 1 attempts, then degrade"
+
+
+# --- quota circuit breaker -------------------------------------------------
+# Without it, every node in the graph discovered the exhausted quota
+# independently: seven nodes, seven round trips, each waiting for its own 429.
+# A degraded run took 57 seconds instead of milliseconds.
+DAILY_CAP_ERROR = (
+    "Error code: 429 - {'error': {'message': 'Rate limit reached for model "
+    "`openai/gpt-oss-20b` ... on tokens per day (TPD): Limit 200000, Used "
+    "199992, Requested 605. Please try again in 4m17.904s.', "
+    "'code': 'rate_limit_exceeded'}}"
+)
+
+
+def test_daily_cap_opens_the_breaker_and_later_calls_skip_the_network(monkeypatch):
+    client = _FlakyClient(DAILY_CAP_ERROR, fail_times=99, payload="{}")
+    monkeypatch.setattr(llm, "_get_client", lambda model: client)
+    monkeypatch.setattr(llm.time, "sleep", lambda _seconds: None)
+
+    # First call reaches Groq and learns the quota is gone.
+    with pytest.raises(LLMUnavailable):
+        structured_call("sys", "user", _Schema, model="test-model")
+    assert client.calls == 1, "a daily cap must not be retried"
+    assert llm.breaker_state()["open"] is True
+
+    # Every later call fails instantly without a round trip.
+    for _ in range(5):
+        with pytest.raises(LLMUnavailable, match="quota"):
+            structured_call("sys", "user", _Schema, model="test-model")
+    assert client.calls == 1, "breaker must short-circuit before invoking"
+
+
+def test_breaker_uses_the_wait_groq_reports():
+    llm._open_breaker(DAILY_CAP_ERROR)
+    remaining = llm.breaker_state()["seconds_remaining"]
+    # 4m17.9s plus a small margin.
+    assert 255 <= remaining <= 275
+
+
+def test_breaker_falls_back_to_a_default_wait_when_none_is_given():
+    llm._open_breaker("429 tokens per day exceeded")
+    assert llm.breaker_state()["seconds_remaining"] > 600
+
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("Please try again in 4m17.904s", 263),
+        ("Please try again in 32.5s", 38),
+        ("Please try again in 1m0s", 65),
+    ],
+)
+def test_retry_after_parsing(text, expected):
+    assert round(llm._parse_retry_after(text)) == expected
+
+
+def test_a_successful_call_closes_the_breaker(monkeypatch):
+    llm._open_breaker(DAILY_CAP_ERROR)
+    assert llm.breaker_state()["open"] is True
+
+    # Pretend the cooldown elapsed, then let a call succeed.
+    llm.reset_breaker()
+    client = _FlakyClient("unused", fail_times=0, payload='{"name": "a", "count": 1}')
+    monkeypatch.setattr(llm, "_get_client", lambda model: client)
+
+    structured_call("sys", "user", _Schema, model="test-model")
+    assert llm.breaker_state()["open"] is False
+
+
+def test_breaker_does_not_open_for_a_per_minute_limit(monkeypatch):
+    """A burst limit clears in seconds - it must not pause the whole agent."""
+    per_minute = "Error code: 429 - rate_limit_exceeded on tokens per minute (TPM)"
+    client = _FlakyClient(per_minute, fail_times=1, payload='{"name": "a", "count": 1}')
+    monkeypatch.setattr(llm, "_get_client", lambda model: client)
+    monkeypatch.setattr(llm.time, "sleep", lambda _seconds: None)
+
+    result = structured_call("sys", "user", _Schema, model="test-model")
+
+    assert result.count == 1
+    assert client.calls == 2, "a per-minute limit should be retried"
+    assert llm.breaker_state()["open"] is False
