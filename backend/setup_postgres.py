@@ -71,6 +71,7 @@ def main() -> int:
 
     try:
         import psycopg
+        from psycopg import sql
     except ImportError:
         print("psycopg is not installed. Run: pip install -r requirements.txt")
         return 1
@@ -105,10 +106,15 @@ def main() -> int:
         if exists:
             print(f"  role '{ROLE}' already exists - left unchanged")
         else:
-            # Identifiers cannot be parameterised, but ROLE is a module
-            # constant, not user input, so there is nothing to inject here.
+            # PostgreSQL does not accept bound parameters in DDL - only DML
+            # takes placeholders - so "PASSWORD %s" is a syntax error. Compose
+            # the statement with psycopg.sql instead, which quotes the
+            # identifier and escapes the literal properly.
             conn.execute(
-                f"CREATE ROLE {ROLE} LOGIN PASSWORD %s", (ROLE_PASSWORD,)
+                sql.SQL("CREATE ROLE {role} LOGIN PASSWORD {password}").format(
+                    role=sql.Identifier(ROLE),
+                    password=sql.Literal(ROLE_PASSWORD),
+                )
             )
             print(f"  created role '{ROLE}'")
 
@@ -119,7 +125,12 @@ def main() -> int:
         if exists:
             print(f"  database '{DATABASE}' already exists - left unchanged")
         else:
-            conn.execute(f"CREATE DATABASE {DATABASE} OWNER {ROLE}")
+            conn.execute(
+                sql.SQL("CREATE DATABASE {database} OWNER {role}").format(
+                    database=sql.Identifier(DATABASE),
+                    role=sql.Identifier(ROLE),
+                )
+            )
             print(f"  created database '{DATABASE}' owned by '{ROLE}'")
 
     # --- prove the application's own credentials work ---
