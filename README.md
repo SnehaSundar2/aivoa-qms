@@ -172,8 +172,20 @@ rejected with one click, and the workflow status and assignment are never auto-f
 docker compose up -d
 ```
 
-Skip this if you like — the backend falls back to a local SQLite file and says so
-loudly in the log.
+**No Docker?** If PostgreSQL is already installed locally, create the role and
+database this project expects:
+
+```bash
+cd backend && python setup_postgres.py
+```
+
+It prompts for your PostgreSQL superuser password (or reads `PGPASSWORD`), is safe
+to re-run, and verifies the application's own credentials before exiting.
+
+Skip the database entirely if you like — the backend falls back to a local SQLite
+file and says so loudly in the log. Set `ALLOW_SQLITE_FALLBACK=false` in `.env` to
+turn that fallback into a hard failure, which is what you want once PostgreSQL is
+working so it cannot quietly regress.
 
 ### 2. Backend
 
