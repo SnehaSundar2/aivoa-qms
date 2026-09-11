@@ -129,9 +129,24 @@ def test_unrecognised_text_defaults_to_major_not_minor():
     assert risk.severity == "Major"
 
 
-def test_batch_number_is_extracted_verbatim():
-    extracted = heuristics.extract("The affected material is batch OND25B119, please advise.")
-    assert extracted.batch_number == "OND25B119"
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("The affected material is batch OND25B119, please advise.", "OND25B119"),
+        # Regression: the label was captured as the value, giving "number".
+        ("Batch number AMX240602. Manufacturing date March 2026.", "AMX240602"),
+        ("Lot No. OND25B119 was received", "OND25B119"),
+        ("B.No: PCM24H221", "PCM24H221"),
+        ("batch: MTF23A014", "MTF23A014"),
+    ],
+)
+def test_batch_number_is_extracted_verbatim(text, expected):
+    assert heuristics.extract(text).batch_number == expected
+
+
+def test_batch_label_without_a_value_extracts_nothing():
+    """A batch number must contain a digit, so the label alone yields None."""
+    assert heuristics.extract("the batch number is unknown").batch_number is None
 
 
 def test_extraction_never_invents_a_batch_number():

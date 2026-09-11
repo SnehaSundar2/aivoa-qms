@@ -11,7 +11,12 @@ import pytest
 from pydantic import BaseModel
 
 from app.agent import llm
-from app.agent.llm import LLMUnavailable, _extract_json, structured_call
+from app.agent.llm import (
+    LLMUnavailable,
+    _extract_json,
+    _is_transient,
+    structured_call,
+)
 
 
 class _Schema(BaseModel):
@@ -126,3 +131,96 @@ def test_missing_api_key_is_reported_as_unavailable(monkeypatch):
     llm._client_cache.clear()
     with pytest.raises(LLMUnavailable, match="GROQ_API_KEY"):
         structured_call("sys", "user", _Schema, model="test-model")
+
+
+# --- transient vs permanent failures --------------------------------------
+# Groq's JSON mode intermittently rejects its own generation with
+# 400 json_validate_failed. Treating that as "unavailable" made roughly a
+# third of all runs fall back to rules while health checks stayed green.
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Error code: 400 - {'code': 'json_validate_failed'}",
+        "Error code: 429 - rate_limit_exceeded",
+        "503 Service Unavailable",
+        "Read timed out",
+        "Connection reset by peer",
+        "The service is overloaded",
+    ],
+)
+def test_transient_failures_are_recognised(message):
+    assert _is_transient(Exception(message)) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "Error code: 400 - {'code': 'model_decommissioned'}",
+        "Error code: 404 - {'code': 'model_not_found'}",
+        "401 authentication_error: invalid_api_key",
+        "The model `x` does not exist",
+    ],
+)
+def test_permanent_failures_are_not_retried(message):
+    """A wrong model or bad key will never succeed - failing fast is correct."""
+    assert _is_transient(Exception(message)) is False
+
+
+class _FlakyClient:
+    """Fails with `error` for the first `fail_times` calls, then succeeds."""
+
+    def __init__(self, error: str, fail_times: int, payload: str):
+        self.error = error
+        self.fail_times = fail_times
+        self.payload = payload
+        self.calls = 0
+
+    def invoke(self, messages):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise RuntimeError(self.error)
+        return _Reply(self.payload)
+
+
+def test_transient_failure_is_retried_and_succeeds(monkeypatch):
+    monkeypatch.setattr(llm.settings, "llm_max_retries", 3)
+    client = _FlakyClient(
+        "Error code: 400 - {'code': 'json_validate_failed'}",
+        fail_times=2,
+        payload='{"name": "widget", "count": 4}',
+    )
+    monkeypatch.setattr(llm, "_get_client", lambda model: client)
+    monkeypatch.setattr(llm.time, "sleep", lambda _seconds: None)  # no real backoff
+
+    result = structured_call("sys", "user", _Schema, model="test-model")
+
+    assert result.count == 4
+    assert client.calls == 3, "should have retried twice before succeeding"
+
+
+def test_permanent_failure_fails_on_the_first_call(monkeypatch):
+    monkeypatch.setattr(llm.settings, "llm_max_retries", 3)
+    client = _FlakyClient(
+        "Error code: 400 - {'code': 'model_decommissioned'}",
+        fail_times=99,
+        payload="{}",
+    )
+    monkeypatch.setattr(llm, "_get_client", lambda model: client)
+    monkeypatch.setattr(llm.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(LLMUnavailable, match="model_decommissioned"):
+        structured_call("sys", "user", _Schema, model="test-model")
+
+    assert client.calls == 1, "a decommissioned model must not be retried"
+
+
+def test_transient_failure_eventually_gives_up(monkeypatch):
+    monkeypatch.setattr(llm.settings, "llm_max_retries", 2)
+    client = _FlakyClient("503 Service Unavailable", fail_times=99, payload="{}")
+    monkeypatch.setattr(llm, "_get_client", lambda model: client)
+    monkeypatch.setattr(llm.time, "sleep", lambda _seconds: None)
+
+    with pytest.raises(LLMUnavailable):
+        structured_call("sys", "user", _Schema, model="test-model")
+
+    assert client.calls == 3, "max_retries + 1 attempts, then degrade"

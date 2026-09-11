@@ -50,7 +50,8 @@ class Settings(BaseSettings):
     # explicitly why it is not using them.
     specified_models: tuple[str, str] = ("gemma2-9b-it", "llama-3.3-70b-versatile")
     llm_temperature: float = 0.1
-    llm_max_retries: int = 2
+    # Retries for transient Groq failures (json_validate_failed, 429, 5xx).
+    llm_max_retries: int = 3
     llm_timeout_seconds: int = 60
 
     # --- Uploads ------------------------------------------------------------

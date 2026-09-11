@@ -62,7 +62,14 @@ MINOR_KEYWORDS = (
     "minor", "outer box", "shade",
 )
 
-BATCH_RE = re.compile(r"\b(?:batch|lot|b\.?no\.?|lot\s*no\.?)[\s:#-]*([A-Z0-9][A-Z0-9\-/]{3,})\b", re.I)
+# The value must contain a digit. Without that, "Batch number AMX240602"
+# captured the literal word "number" - the label was consumed as the value.
+# The optional no/number/# group lets the label be skipped properly.
+BATCH_RE = re.compile(
+    r"\b(?:batch|lot|b\.?no\.?)\s*(?:number|no\.?|#)?[\s:#-]*"
+    r"([A-Za-z0-9][A-Za-z0-9\-/]*\d[A-Za-z0-9\-/]*)\b",
+    re.I,
+)
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+")
 PHONE_RE = re.compile(r"\+?\d[\d\s\-()]{7,}\d")
 ISO_DATE_RE = re.compile(r"\b(20\d{2})-(\d{2})-(\d{2})\b")

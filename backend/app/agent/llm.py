@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
+import time
 from typing import Type, TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -28,6 +30,48 @@ logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=BaseModel)
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
+
+
+# Failures that are worth retrying: the model or the service stumbled on this
+# particular call, but nothing is wrong with the configuration.
+#
+# json_validate_failed matters most. Groq's JSON mode intermittently rejects
+# its own generation with a 400 and an empty failed_generation, roughly one
+# call in three under load. Treating that as "the LLM is unavailable" made a
+# third of all runs fall back to rules while /api/ai/health still reported
+# everything healthy - the degradation was real but nearly invisible.
+_TRANSIENT_MARKERS = (
+    "json_validate_failed",
+    "rate_limit",
+    "429",
+    "500",
+    "502",
+    "503",
+    "504",
+    "timeout",
+    "timed out",
+    "overloaded",
+    "connection",
+    "temporarily unavailable",
+)
+
+# Failures where retrying is pointless - the configuration is wrong.
+_PERMANENT_MARKERS = (
+    "model_decommissioned",
+    "model_not_found",
+    "invalid_api_key",
+    "authentication",
+    "401",
+    "403",
+    "does not exist",
+)
+
+
+def _is_transient(exc: Exception) -> bool:
+    text = str(exc).lower()
+    if any(marker in text for marker in _PERMANENT_MARKERS):
+        return False
+    return any(marker in text for marker in _TRANSIENT_MARKERS)
 
 
 class LLMUnavailable(RuntimeError):
@@ -115,13 +159,37 @@ def structured_call(
     )
 
     messages = [("system", system), ("human", user_prompt)]
+    attempts = max(1, settings.llm_max_retries) + 1
 
     for attempt in range(2):
-        try:
-            reply = client.invoke(messages)
-        except Exception as exc:  # noqa: BLE001 - network/auth/rate-limit all land here
-            logger.warning("Groq call failed (%s): %s", model, exc)
-            raise LLMUnavailable(str(exc)) from exc
+        reply = None
+        last_error: Exception | None = None
+
+        # Retry transient failures before giving up on the model entirely.
+        for call in range(attempts):
+            try:
+                reply = client.invoke(messages)
+                break
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                if not _is_transient(exc) or call == attempts - 1:
+                    logger.warning(
+                        "Groq call failed (%s, attempt %s/%s): %s",
+                        model, call + 1, attempts, exc,
+                    )
+                    raise LLMUnavailable(str(exc)) from exc
+
+                # Jittered backoff so parallel graph branches do not retry in
+                # lockstep and re-collide.
+                delay = 0.4 * (2**call) + random.uniform(0, 0.3)
+                logger.info(
+                    "Transient Groq failure (%s, attempt %s/%s), retrying in %.1fs: %s",
+                    model, call + 1, attempts, delay, str(exc)[:120],
+                )
+                time.sleep(delay)
+
+        if reply is None:  # pragma: no cover - defensive
+            raise LLMUnavailable(str(last_error))
 
         content = getattr(reply, "content", "") or ""
         try:
