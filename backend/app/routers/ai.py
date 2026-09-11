@@ -1,6 +1,7 @@
 """AI Copilot endpoints - the entry points into the LangGraph agent."""
 from __future__ import annotations
 
+import json
 import logging
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
@@ -8,7 +9,15 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from app.agent.graph import render_mermaid
 from app.agent.llm import check_models, llm_available
 from app.core.config import settings
-from app.schemas import CopilotResult, IntakeTextRequest, ReassessRequest
+from app.schemas import (
+    ChatMessage,
+    ChatRequest,
+    ChatResponse,
+    CopilotResult,
+    IntakeTextRequest,
+    ReassessRequest,
+)
+from app.services.chat import greeting, handle_turn
 from app.services.copilot import run_copilot
 from app.services.documents import UnsupportedDocument, extract_text
 
@@ -145,3 +154,66 @@ def reassess(payload: ReassessRequest) -> CopilotResult:
         source_reference=record.get("source_reference"),
         existing=record,
     )
+
+
+# --------------------------------------------------------------------------
+# Conversational copilot
+# --------------------------------------------------------------------------
+@router.get("/chat/greeting")
+def chat_greeting() -> dict:
+    """The copilot's opening message."""
+    return {"reply": greeting()}
+
+
+@router.post("/chat", response_model=ChatResponse)
+def chat(payload: ChatRequest) -> ChatResponse:
+    """One turn of conversation.
+
+    The agent decides whether to call the `log_complaint` tool. When it does,
+    `form_update` carries the fields to apply to the Log Customer Complaint
+    form and `copilot` carries the full assessment.
+    """
+    return handle_turn(payload.message, payload.history, payload.form)
+
+
+@router.post("/chat/upload", response_model=ChatResponse)
+async def chat_upload(
+    file: UploadFile = File(...),
+    form: str = Form("{}"),
+    history: str = Form("[]"),
+) -> ChatResponse:
+    """Same conversation, but the turn's content comes from an uploaded file.
+
+    `form` and `history` arrive as JSON strings because this is multipart -
+    a file upload cannot also carry a JSON body.
+    """
+    data = await file.read()
+
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+    if len(data) > max_bytes:
+        raise HTTPException(413, f"File exceeds the {settings.max_upload_mb} MB limit")
+    if not data:
+        raise HTTPException(400, "Uploaded file is empty")
+
+    try:
+        text, detected_type = extract_text(data, file.filename or "upload")
+    except UnsupportedDocument as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+    try:
+        form_state = json.loads(form) or {}
+        past = [ChatMessage(**m) for m in (json.loads(history) or [])]
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        raise HTTPException(400, f"Malformed form or history payload: {exc}") from exc
+
+    form_state.setdefault("source_type", detected_type)
+    form_state.setdefault("source_reference", file.filename)
+
+    logger.info("Chat upload: %s chars from %s (%s)", len(text), file.filename, detected_type)
+    response = handle_turn(text, past, form_state)
+
+    # Record where this came from, so the saved complaint keeps its provenance.
+    if response.form_update:
+        response.form_update.setdefault("source_type", detected_type)
+        response.form_update.setdefault("source_reference", file.filename)
+    return response

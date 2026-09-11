@@ -66,9 +66,16 @@ details, significant cold-chain excursion, missing tablets in a pack. Class II \
 recall candidates.
 
 MINOR - unlikely to cause harm and the product remains fit for use. Includes: \
-cosmetic chips or minor discolouration with no functional impact, printing quality \
-on the outer carton, minor documentation errors, transit damage to shipper cartons \
-only. Class III or non-reportable.
+cosmetic chips with no functional impact, printing quality on the outer carton, minor \
+documentation errors, transit damage to shipper cartons only. Class III or \
+non-reportable.
+
+Discolouration of the dosage form itself is MAJOR, not Minor. A change in colour of a \
+tablet, capsule or its contents is a recognised indicator of degradation, moisture \
+ingress or oxidation, any of which can reduce potency or raise impurities. Treat it as \
+Major unless the record positively establishes the discolouration is confined to \
+printing or the outer carton and cannot involve the product. The same applies to \
+unexpected odour, softening, and capsules sticking together.
 
 risk_score (0-100) should combine severity of harm, probability of the defect \
 reaching a patient, and detectability. Roughly: Critical 80-100, Major 45-79, \
@@ -78,6 +85,18 @@ regulatory_reportable is true when the event would plausibly trigger a notificat
 to a health authority - a US FDA Field Alert Report under 21 CFR 314.81(b)(1)(ii) \
 (within 3 working days), a Biological Product Deviation Report, an EU rapid alert, \
 or a recall assessment. State which one in regulatory_rationale.
+
+Two fields land directly on the QA officer's form, so write them for that reader:
+
+suggested_next_action - the single concrete next step, phrased as an instruction and
+short enough to read at a glance, e.g. "Route to QA Investigation & Issue Replacement",
+"Escalate to QA Head & Initiate Recall Assessment", "Log for Trending & Acknowledge to
+Customer".
+
+initial_risk_assessment - two sentences naming the most plausible mechanism and what it
+demands, e.g. "Potential moisture ingress or primary packaging seal failure leading to
+capsule discoloration. Requires retention sample examination and batch record review."
+State the mechanism as a possibility, never as an established cause.
 
 If key facts are missing, say so in the rationale and lower your confidence. \
 Err toward the higher severity when genuinely uncertain - under-triage is the more \

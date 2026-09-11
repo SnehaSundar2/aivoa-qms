@@ -103,35 +103,27 @@ def triage_node(state: ComplaintAgentState) -> dict[str, Any]:
 # 2. Extraction - unstructured source to structured record
 # ---------------------------------------------------------------------------
 def extract_node(state: ComplaintAgentState) -> dict[str, Any]:
+    """Run the `log_complaint` tool over the source text."""
+    from app.agent.tools import run_log_complaint
+
     text = state.get("raw_text", "")
     existing = state.get("existing") or {}
 
-    hint = ""
-    if existing:
-        hint = (
-            "\n\nThe intake officer has already entered these values. Treat them as "
-            "correct and do not contradict them; extract only what is missing:\n"
-            + json.dumps({k: v for k, v in existing.items() if v}, indent=2, default=str)
-        )
-
     try:
-        extracted = structured_call(
-            prompts.EXTRACTION_PROMPT,
-            f"Incoming complaint source:\n\n{text[:12000]}{hint}",
-            ExtractedComplaint,
-            model=FAST_MODEL,
-        )
+        extracted = run_log_complaint(text, existing)
         return {
             "extracted": extracted.model_dump(),
-            "trace": ["extract"],
+            "tool_called": "log_complaint",
+            "trace": ["log_complaint"],
             "models_used": [FAST_MODEL],
         }
     except LLMUnavailable as exc:
         logger.info("extract_node degraded: %s", exc)
         return {
             "extracted": heuristics.extract(text).model_dump(),
+            "tool_called": "log_complaint",
             "degraded": True,
-            "trace": ["extract (rules)"],
+            "trace": ["log_complaint (rules)"],
             "errors": [f"extract: {exc}"],
         }
 

@@ -44,9 +44,15 @@ def test_full_run_visits_every_node_in_order():
 
     stages = [entry.split(" ")[0] for entry in result.trace]
     assert stages == [
-        "triage", "extract", "completeness", "duplicate_check",
+        "triage", "log_complaint", "completeness", "duplicate_check",
         "risk_assessment", "root_cause", "capa", "summary",
     ]
+
+
+def test_extraction_runs_as_a_named_tool():
+    """The extraction step is a tool call, and says so in the trace."""
+    result = run_copilot(PARTICULATE_EMAIL)
+    assert any(node.startswith("log_complaint") for node in result.trace)
 
 
 def test_non_complaint_short_circuits_to_reject():

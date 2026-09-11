@@ -24,6 +24,7 @@ class ComplaintAgentState(TypedDict, total=False):
     existing: dict[str, Any]
 
     # --- triage ---
+    tool_called: Optional[str]
     is_complaint: bool
     rejection_reason: Optional[str]
 

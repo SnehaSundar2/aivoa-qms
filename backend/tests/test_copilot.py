@@ -69,7 +69,7 @@ def test_prefill_maps_extraction_and_risk_onto_form_fields():
         "complainant_name": "T. Bergstrom",
         "product_name": "Ondansetron Injection USP 2 mg/mL",
         "batch_number": "OND25B119",
-        "complaint_category": "foreign matter / particulate",
+        "complaint_category": "Foreign Matter - Particulate in Parenteral",
         "product_type": "FDF",
         "date_of_complaint": "08/09/2026",
         "sample_available": True,
@@ -85,7 +85,8 @@ def test_prefill_maps_extraction_and_risk_onto_form_fields():
     prefill = _build_prefill(extracted, risk, "A summary.", {"source_type": "Email"})
 
     assert prefill["batch_number"] == "OND25B119"
-    assert prefill["complaint_category"] == "Foreign Matter / Particulate"
+    # Free text now, so it passes through verbatim rather than snapping.
+    assert prefill["complaint_category"] == "Foreign Matter - Particulate in Parenteral"
     assert prefill["severity"] == "Critical"
     assert prefill["risk_score"] == 91
     assert prefill["regulatory_reportable"] is True
@@ -124,6 +125,23 @@ def test_unknown_product_type_is_not_prefilled():
     assert "product_type" not in prefill
 
 
-def test_invented_category_is_dropped_rather_than_guessed():
-    prefill = _build_prefill({"complaint_category": "Alien Interference"}, {}, None, {})
-    assert "complaint_category" not in prefill
+def test_category_is_free_text_and_passes_through():
+    """complaint_category is model-authored prose, matching the reference UI.
+
+    Trade-off, recorded deliberately: the form shows labels like "Product
+    Defect - Discoloration" that no fixed enum contains, so this field is no
+    longer snapped to a controlled vocabulary. It is therefore NOT safe to
+    trend on directly - severity and product_type remain the controlled fields
+    for that. If category-level trending is needed later, derive a normalised
+    column from the description rather than constraining this one.
+    """
+    prefill = _build_prefill(
+        {"complaint_category": "Product Defect - Discoloration"}, {}, None, {}
+    )
+    assert prefill["complaint_category"] == "Product Defect - Discoloration"
+
+
+def test_severity_is_still_snapped_to_the_controlled_vocabulary():
+    """Severity drives the workflow, so it stays constrained."""
+    assert _build_prefill({}, {"severity": "critical"}, None, {})["severity"] == "Critical"
+    assert "severity" not in _build_prefill({}, {"severity": "Apocalyptic"}, None, {})

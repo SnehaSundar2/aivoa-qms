@@ -95,25 +95,30 @@ def _build_prefill(extracted: dict, risk: dict, summary: str | None, source: dic
     prefill: dict[str, Any] = {}
 
     passthrough = (
-        "complainant_name", "complainant_organisation", "complainant_email",
-        "complainant_phone", "country", "product_name", "product_code",
-        "dosage_form", "strength", "pack_size", "batch_number",
-        "quantity_supplied", "quantity_complained", "complaint_subcategory",
-        "complaint_description", "sample_quantity",
+        # 1. Origin & customer
+        "complaint_source", "customer_name", "complainant_name",
+        "complainant_email", "complainant_phone", "country",
+        # 2. Product & batch
+        "product_name", "product_strength", "product_code", "dosage_form",
+        "pack_size", "batch_number", "affected_quantity", "quantity_supplied",
+        # Dates stay verbatim: "March 2026" is what the customer wrote and what
+        # the record must show.
+        "manufacturing_date", "expiry_date",
+        # 3. Facility & material impact
+        "originating_site_block", "impacted_npm",
+        # 4. Defect analysis
+        "complaint_category", "complaint_subcategory", "complaint_description",
+        "sample_quantity",
     )
     for field in passthrough:
         value = extracted.get(field)
         if value not in (None, "", []):
             prefill[field] = value
 
-    for field in ("manufacturing_date", "expiry_date", "date_of_complaint"):
-        coerced = _coerce_date(extracted.get(field))
-        if coerced:
-            prefill[field] = coerced
-
-    category = _snap_enum(extracted.get("complaint_category"), ComplaintCategory)
-    if category:
-        prefill["complaint_category"] = category
+    # Only the complaint date is a real DATE column, so only it gets coerced.
+    coerced = _coerce_date(extracted.get("date_of_complaint"))
+    if coerced:
+        prefill["date_of_complaint"] = coerced
 
     product_type = _snap_enum(extracted.get("product_type"), ProductType)
     if product_type and product_type != ProductType.UNKNOWN.value:
@@ -135,6 +140,10 @@ def _build_prefill(extracted: dict, risk: dict, summary: str | None, source: dic
         prefill["regulatory_reportable"] = bool(risk["regulatory_reportable"])
     if risk.get("regulatory_rationale"):
         prefill["regulatory_rationale"] = risk["regulatory_rationale"]
+    if risk.get("suggested_next_action"):
+        prefill["suggested_next_action"] = risk["suggested_next_action"]
+    if risk.get("initial_risk_assessment"):
+        prefill["initial_risk_assessment"] = risk["initial_risk_assessment"]
 
     # Intake defaults the operator can still change.
     prefill["date_received"] = date.today().isoformat()
