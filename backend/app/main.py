@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.agent.graph import get_graph
-from app.agent.llm import llm_available
+from app.agent.llm import check_models, llm_available
 from app.core.config import settings
 from app.core.database import engine, init_db
 from app.routers import ai, complaints
@@ -34,6 +34,24 @@ async def lifespan(_: FastAPI):
             "Groq configured | extraction=%s | reasoning=%s",
             settings.groq_model, settings.groq_reasoning_model,
         )
+        # Confirm the models are actually served. A decommissioned model would
+        # otherwise turn every request into a silent rule-based fallback.
+        status = check_models()
+        if status["ok"]:
+            logger.info("Groq models verified as available")
+        elif status["missing"]:
+            logger.error(
+                "CONFIGURED MODEL NOT AVAILABLE: %s. The copilot will fall back to "
+                "rules on every request. Models this key can use: %s",
+                ", ".join(status["missing"]),
+                ", ".join(status["available"]) or "none",
+            )
+        else:
+            logger.warning(
+                "Could not verify Groq models (%s). Continuing; failures will "
+                "surface per request.",
+                status["error"],
+            )
     else:
         logger.warning(
             "GROQ_API_KEY not set - the copilot will run in rule-based fallback mode. "

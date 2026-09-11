@@ -90,7 +90,7 @@ rejected with one click, and the workflow status and assignment are never auto-f
 | Frontend | React 19, Redux Toolkit, React Router | Inter via Google Fonts |
 | Backend | FastAPI, Pydantic v2, SQLAlchemy 2.0 | |
 | Agent | LangGraph | 9 nodes, conditional routing, parallel branch |
-| LLM | Groq `gemma2-9b-it` + `llama-3.3-70b-versatile` | routed per node |
+| LLM | Groq, small + large model routed per node | see the note below on model availability |
 | Database | PostgreSQL (MySQL supported) | SQLite auto-fallback for zero-setup demo |
 
 ---
@@ -207,6 +207,30 @@ API on `http://localhost:8000`, interactive docs at `http://localhost:8000/docs`
 Get a Groq key at <https://console.groq.com/keys>. **Without a key the app still runs**
 — every LLM node falls back to deterministic rules, and the UI labels the result as
 rule-based rather than passing it off as an AI assessment.
+
+#### A note on the specified models
+
+The brief specifies `gemma2-9b-it`, and mentions `llama-3.3-70b-versatile`. **Groq no
+longer serves either:**
+
+```
+gemma2-9b-it            400 model_decommissioned
+                        "has been decommissioned and is no longer supported"
+llama-3.3-70b-versatile 404 model_not_found
+```
+
+The reason those two were picked still holds — a cheap fast model for extraction and
+triage, a larger one for the judgement calls — so the defaults map onto the closest
+currently-served equivalents:
+
+| Role | Specified | Actually used |
+|---|---|---|
+| Extraction, triage, questions, summary | `gemma2-9b-it` | `openai/gpt-oss-20b` |
+| Risk, root cause, CAPA | `llama-3.3-70b-versatile` | `openai/gpt-oss-120b` |
+
+Both are set in `.env` (`GROQ_MODEL`, `GROQ_REASONING_MODEL`); point them back at the
+original names in one line if Groq restores them. `GET /api/ai/health` reports which
+models are configured, whether Groq actually serves them, and what the key can use.
 
 ### 3. Frontend
 

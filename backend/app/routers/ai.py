@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.agent.graph import render_mermaid
-from app.agent.llm import llm_available
+from app.agent.llm import check_models, llm_available
 from app.core.config import settings
 from app.schemas import CopilotResult, IntakeTextRequest, ReassessRequest
 from app.services.copilot import run_copilot
@@ -18,18 +18,50 @@ router = APIRouter(prefix="/ai", tags=["ai-copilot"])
 
 @router.get("/health")
 def ai_health() -> dict:
-    """Lets the UI tell the operator up front whether the model is live."""
+    """Lets the UI tell the operator up front whether the model is live.
+
+    Reports model availability, not just whether a key is present: a key that
+    points at a decommissioned model looks configured but produces rule-based
+    output on every request.
+    """
+    if not llm_available():
+        return {
+            "llm_configured": False,
+            "extraction_model": settings.groq_model,
+            "reasoning_model": settings.groq_reasoning_model,
+            "mode": "rule-based fallback",
+            "models_available": False,
+            "message": (
+                "GROQ_API_KEY is not set - the copilot will run deterministic rules "
+                "and every result will be labelled as rule-based."
+            ),
+        }
+
+    status = check_models()
+
+    if status["missing"]:
+        message = (
+            f"Configured model(s) not available on Groq: {', '.join(status['missing'])}. "
+            "Every request will fall back to rules. "
+            f"This key can use: {', '.join(status['available'][:8])}."
+        )
+        mode = "rule-based fallback (model unavailable)"
+    elif not status["checked"]:
+        message = f"Groq key set; could not verify models ({status['error']})."
+        mode = "llm (unverified)"
+    else:
+        message = "Groq connected."
+        mode = "llm"
+
     return {
-        "llm_configured": llm_available(),
+        "llm_configured": True,
         "extraction_model": settings.groq_model,
         "reasoning_model": settings.groq_reasoning_model,
-        "mode": "llm" if llm_available() else "rule-based fallback",
-        "message": (
-            "Groq connected."
-            if llm_available()
-            else "GROQ_API_KEY is not set - the copilot will run deterministic rules "
-                 "and every result will be labelled as rule-based."
-        ),
+        "mode": mode,
+        "models_available": status["ok"],
+        "missing_models": status["missing"],
+        "specified_by_brief": list(settings.specified_models),
+        "message": message,
     }
 
 

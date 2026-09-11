@@ -149,3 +149,50 @@ def structured_call(
 
 def llm_available() -> bool:
     return bool(settings.groq_api_key)
+
+
+def check_models(timeout: float = 15.0) -> dict:
+    """Verify the configured models are actually served by Groq.
+
+    This exists because of a failure mode that cost real debugging time: Groq
+    decommissioned `gemma2-9b-it`, every call started returning 400
+    model_decommissioned, and each node dutifully caught it and fell back to
+    rules. The system stayed up and kept producing plausible output, with
+    nothing but a per-request WARNING to say the LLM had stopped being used at
+    all.
+
+    Degrading on a transient outage is correct. Degrading permanently because
+    a model no longer exists is a configuration error, and it should be stated
+    once, loudly, at startup - and surfaced in /api/ai/health - rather than
+    inferred from a `degraded` flag on every response.
+
+    Never raises: a failed check is reported, not fatal, because the API being
+    briefly unreachable must not stop the service from starting.
+    """
+    result: dict = {
+        "checked": False,
+        "ok": False,
+        "configured": [settings.groq_model, settings.groq_reasoning_model],
+        "missing": [],
+        "available": [],
+        "error": None,
+    }
+
+    if not settings.groq_api_key:
+        result["error"] = "GROQ_API_KEY is not set"
+        return result
+
+    try:
+        from groq import Groq
+
+        listing = Groq(api_key=settings.groq_api_key, timeout=timeout).models.list()
+        available = sorted(m.id for m in listing.data)
+    except Exception as exc:  # noqa: BLE001 - a check must never break startup
+        result["error"] = f"{type(exc).__name__}: {exc}"
+        return result
+
+    result["checked"] = True
+    result["available"] = available
+    result["missing"] = [m for m in result["configured"] if m not in available]
+    result["ok"] = not result["missing"]
+    return result

@@ -28,10 +28,27 @@ class Settings(BaseSettings):
 
     # --- Groq / LLM ---------------------------------------------------------
     groq_api_key: str = ""
-    # Primary extraction/classification model required by the assignment.
-    groq_model: str = "gemma2-9b-it"
-    # Larger model used for the reasoning-heavy nodes (risk, RCA, CAPA).
-    groq_reasoning_model: str = "llama-3.3-70b-versatile"
+
+    # The assignment specifies `gemma2-9b-it` for extraction and mentions
+    # `llama-3.3-70b-versatile` for the reasoning nodes. Both are gone from
+    # Groq as of this build:
+    #
+    #   gemma2-9b-it           -> 400 model_decommissioned
+    #                             "has been decommissioned and is no longer
+    #                              supported" (console.groq.com/docs/deprecations)
+    #   llama-3.3-70b-versatile-> 404 model_not_found
+    #
+    # The two-tier split they were chosen for still holds, so the defaults map
+    # onto the closest currently-served equivalents: a small fast model for
+    # extraction and triage, a large one for the judgement calls. Both are
+    # overridable from .env, so pointing this back at the original names is a
+    # one-line change if Groq ever restores them.
+    groq_model: str = "openai/gpt-oss-20b"
+    groq_reasoning_model: str = "openai/gpt-oss-120b"
+
+    # The model names the brief asked for, kept so the startup check can say
+    # explicitly why it is not using them.
+    specified_models: tuple[str, str] = ("gemma2-9b-it", "llama-3.3-70b-versatile")
     llm_temperature: float = 0.1
     llm_max_retries: int = 2
     llm_timeout_seconds: int = 60
