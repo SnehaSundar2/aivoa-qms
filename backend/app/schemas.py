@@ -386,6 +386,9 @@ class ChatResponse(BaseModel):
     )
     # An edit overwrites operator-entered values; a log fills gaps only.
     overwrite: bool = False
+    # The incoming source describes a different complaint, so the form was
+    # replaced rather than merged. The UI clears the old draft first.
+    replace_form: bool = False
     copilot: Optional[CopilotResult] = None
     form_complete: bool = False
     degraded: bool = False

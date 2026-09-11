@@ -209,6 +209,16 @@ const formSlice = createSlice({
     // edit_complaint turn sets `overwrite`.
     const prefillFromChat = (state, action) => {
       const payload = action.payload ?? {}
+
+      // The source described a different complaint, so the backend replaced
+      // the draft rather than merging. Clear first: leaving the old values
+      // would produce a record mixing two complaints, which describes neither.
+      if (payload.replace_form) {
+        state.values = { ...EMPTY_FORM }
+        state.aiFilled = []
+        state.userEdited = []
+      }
+
       const changed = applyPrefill(state, payload.form_update, {
         overwrite: Boolean(payload.overwrite),
       })

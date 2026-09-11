@@ -39,6 +39,7 @@ from app.agent.llm import LLMUnavailable, structured_call
 from app.agent.edit_parser import parse_edit_instruction
 from app.agent.tools import (
     EDITABLE_FIELDS,
+    is_a_different_complaint,
     run_edit_complaint,
     should_edit_complaint,
     should_log_complaint,
@@ -345,14 +346,23 @@ def _compose_edit_reply(
 
 
 def handle_turn(
-    message: str, history: list[ChatMessage], form: dict[str, Any]
+    message: str,
+    history: list[ChatMessage],
+    form: dict[str, Any],
+    *,
+    is_upload: bool = False,
 ) -> ChatResponse:
-    """Process one chat turn."""
+    """Process one chat turn.
+
+    `is_upload` is passed explicitly rather than guessed at. Dropping a file is
+    an unambiguous "process this document" - it is never an instruction to
+    amend the record, however the document happens to be worded.
+    """
     started = time.perf_counter()
 
     # Editing an existing record is checked first: with a populated form,
     # "the quantity is actually 20" is an amendment, not a new complaint.
-    if should_edit_complaint(message, form):
+    if not is_upload and should_edit_complaint(message, form):
         return _handle_edit(message, history, form, started)
 
     # Cheap deterministic gate next. It only has to be right about the obvious
@@ -395,14 +405,38 @@ def handle_turn(
             latency_ms=int((time.perf_counter() - started) * 1000),
         )
 
-    merged = {**form, **result.form_prefill}
+    # A source describing a DIFFERENT complaint must not be merged into the one
+    # on screen - gap-filling would keep the old product and take the new batch,
+    # describing an event that never happened. Replace the draft instead, and
+    # say so: the operator deliberately supplied this source, but they still
+    # need to know the previous draft is gone.
+    replaced = is_a_different_complaint(result.extracted.model_dump(), form)
+    if replaced:
+        logger.info("Incoming source is a different complaint - replacing the draft")
+        merged = dict(result.form_prefill)
+    else:
+        merged = {**form, **result.form_prefill}
+
     missing = _missing_mandatory(merged)
     reply, reply_degraded = _compose_reply(result, missing, result.degraded)
+
+    if replaced:
+        previous = form.get("batch_number") or form.get("product_name") or "the draft"
+        reply = (
+            f"This is a different complaint from the one on screen, so I've "
+            f"replaced the form. The previous draft ({previous}) was not saved.\n\n"
+            + reply
+        )
 
     return ChatResponse(
         reply=reply,
         tool_called="log_complaint",
         form_update=result.form_prefill,
+        fields_changed=sorted(result.form_prefill),
+        # Replacing a conflicting draft has to overwrite, and the frontend
+        # clears the rest of the form first.
+        overwrite=replaced,
+        replace_form=replaced,
         copilot=result,
         form_complete=not missing,
         degraded=result.degraded or reply_degraded,

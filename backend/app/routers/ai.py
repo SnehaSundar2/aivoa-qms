@@ -229,7 +229,7 @@ async def chat_upload(
     form_state.setdefault("source_reference", file.filename)
 
     logger.info("Chat upload: %s chars from %s (%s)", len(text), file.filename, detected_type)
-    response = handle_turn(text, past, form_state)
+    response = handle_turn(text, past, form_state, is_upload=True)
 
     # Record where this came from, so the saved complaint keeps its provenance.
     if response.form_update:

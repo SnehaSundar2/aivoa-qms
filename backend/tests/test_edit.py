@@ -298,3 +298,64 @@ def test_a_no_op_edit_says_so_instead_of_claiming_confusion(monkeypatch):
     assert response.fields_changed == []
     assert "No change needed" in response.reply
     assert "couldn't tell which field" not in response.reply
+
+
+# --- upload and multi-complaint sequences ----------------------------------
+# Regression: two of the three sample complaint emails contain "correct" or
+# "not", so with a populated form an UPLOAD was routed to edit_complaint and
+# tried to amend the previous complaint with the new one's words.
+def test_an_uploaded_complaint_document_is_never_an_edit():
+    from pathlib import Path
+
+    from app.agent.tools import looks_like_a_complaint_document
+
+    samples = Path(__file__).resolve().parents[1] / "samples"
+    for name in (
+        "complaint_email_particulate.txt",
+        "complaint_email_api_oos.txt",
+        "complaint_email_incomplete.txt",
+    ):
+        document = (samples / name).read_text(encoding="utf-8")
+        assert looks_like_a_complaint_document(document), name
+        assert should_edit_complaint(document, POPULATED) is False, name
+
+
+def test_short_amendments_are_still_edits():
+    """The length heuristic must not swallow genuine instructions."""
+    for message in (
+        "change the batch number to AMX240603",
+        "the affected quantity is actually 20 capsules",
+        "set severity to Critical",
+    ):
+        assert should_edit_complaint(message, POPULATED) is True, message
+
+
+# --- identity conflict -----------------------------------------------------
+# Without this, log_complaint's gap-filling merges two complaints: the form
+# keeps product A's name and takes product B's batch, describing an event that
+# never happened.
+def test_a_different_batch_is_a_different_complaint():
+    from app.agent.tools import is_a_different_complaint
+
+    assert is_a_different_complaint({"batch_number": "OND25B119"}, POPULATED) is True
+
+
+def test_the_same_batch_is_the_same_complaint():
+    from app.agent.tools import is_a_different_complaint
+
+    assert is_a_different_complaint({"batch_number": "AMX240602"}, POPULATED) is False
+
+
+def test_a_missing_value_on_either_side_is_not_a_conflict():
+    """Absence is not disagreement - gap-filling is exactly what it is for."""
+    from app.agent.tools import is_a_different_complaint
+
+    assert is_a_different_complaint({"batch_number": "OND25B119"}, {}) is False
+    assert is_a_different_complaint({}, POPULATED) is False
+    assert is_a_different_complaint({"affected_quantity": "9 vials"}, POPULATED) is False
+
+
+def test_case_and_whitespace_do_not_make_it_a_different_complaint():
+    from app.agent.tools import is_a_different_complaint
+
+    assert is_a_different_complaint({"batch_number": "  amx240602 "}, POPULATED) is False

@@ -156,6 +156,25 @@ _EDIT_SIGNALS = (
 )
 
 
+# An amendment is an instruction: short and imperative. A complaint is a
+# narrative. Anything past this length carrying complaint detail is the latter,
+# whatever incidental words it contains - a customer email saying "this is not
+# acceptable" must not be read as "correct the record".
+_EDIT_LENGTH_CEILING = 320
+
+
+def looks_like_a_complaint_document(text: str) -> bool:
+    """True when the text reads as a complaint report rather than an instruction."""
+    low = (text or "").lower()
+    if len(low) < _EDIT_LENGTH_CEILING:
+        return False
+    narrative_markers = (
+        "batch", "lot no", "expiry", "reported", "observed", "quantity",
+        "dear", "subject:", "from:", "complaint",
+    )
+    return sum(marker in low for marker in narrative_markers) >= 2
+
+
 def should_edit_complaint(text: str, current_form: dict[str, Any]) -> bool:
     """Decide whether this message edits the record on screen.
 
@@ -170,9 +189,33 @@ def should_edit_complaint(text: str, current_form: dict[str, Any]) -> bool:
 
     low = (text or "").lower()
 
-    # A message carrying a full new complaint is a new log, not an edit, even
-    # with a populated form - the operator has moved on to the next one.
+    # A message carrying a whole complaint is a new log, not an edit, even with
+    # a populated form - the operator has moved on to the next one. Checked by
+    # shape rather than by keyword: two of the three sample complaint emails
+    # contain "correct" or "not", and were being routed to the edit tool.
+    if looks_like_a_complaint_document(text):
+        return False
     if low.count("batch") and ("please log" in low or "log this" in low or "new complaint" in low):
         return False
 
     return any(signal in low for signal in _EDIT_SIGNALS)
+
+
+# Fields that identify WHICH complaint this is. If an incoming document
+# disagrees with the form on any of them, it is a different complaint.
+IDENTITY_FIELDS = ("batch_number", "product_name")
+
+
+def is_a_different_complaint(extracted: dict[str, Any], form: dict[str, Any]) -> bool:
+    """True when the new source describes a complaint other than the one on screen.
+
+    Without this check, log_complaint's gap-filling merges the two: the form
+    keeps product A's name and takes product B's batch number, producing a
+    record that describes no real event. That is worse than either input.
+    """
+    for field in IDENTITY_FIELDS:
+        old_value = str(form.get(field) or "").strip().lower()
+        new_value = str(extracted.get(field) or "").strip().lower()
+        if old_value and new_value and old_value != new_value:
+            return True
+    return False
