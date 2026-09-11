@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # one-line change if Groq ever restores them.
     groq_model: str = "openai/gpt-oss-20b"
     groq_reasoning_model: str = "openai/gpt-oss-120b"
+    # Reads uploaded images - photographed complaint forms, and photographs
+    # of the defect itself. Of the models this key can reach, only the Qwen
+    # ones accept image content; the gpt-oss family rejects it outright.
+    # Blank disables the vision path and images fall back to local OCR.
+    groq_vision_model: str = "qwen/qwen3.8-27b"
 
     # The model names the brief asked for, kept so the startup check can say
     # explicitly why it is not using them.

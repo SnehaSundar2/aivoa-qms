@@ -18,7 +18,8 @@ langchain-groq>=0.2.3,<0.4
 
 # --- Document intake ---
 pypdf==5.1.0
+Pillow==11.0.0                # image validation and downscaling for the vision path
 
-# --- Optional OCR for image intake (needs the Tesseract binary installed too) ---
+# --- Optional local OCR, used only if a Groq vision model is not configured.
+# Needs the Tesseract binary installed separately.
 # pytesseract==0.3.13
-# Pillow==11.0.0

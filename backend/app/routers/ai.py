@@ -38,6 +38,7 @@ def ai_health() -> dict:
             "llm_configured": False,
             "extraction_model": settings.groq_model,
             "reasoning_model": settings.groq_reasoning_model,
+            "vision_model": settings.groq_vision_model,
             "mode": "rule-based fallback",
             "models_available": False,
             "message": (
@@ -85,6 +86,7 @@ def ai_health() -> dict:
         "usage": usage_summary(),
         "extraction_model": settings.groq_model,
         "reasoning_model": settings.groq_reasoning_model,
+        "vision_model": settings.groq_vision_model,
         "mode": mode,
         "models_available": status["ok"],
         "missing_models": status["missing"],

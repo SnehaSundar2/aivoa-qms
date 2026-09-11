@@ -244,6 +244,36 @@ App on `http://localhost:5173`.
 
 ---
 
+## Document intake
+
+Three input types, all through the same chat panel - drop a file or paste text.
+
+| Input | How it is read | Notes |
+|---|---|---|
+| **PDF** | pypdf text layer | Digital PDFs. A scan has no text layer and is refused with advice to upload it as an image instead. Corrupt and password-protected files are refused cleanly rather than raising a 500. |
+| **Email** (`.eml`) | stdlib `email`, plain part preferred | Falls back to flattening the HTML part: block elements become line breaks, entities are decoded, script and style contents dropped. Attachments are listed by name so the operator sees what arrived. |
+| **Image** (`.jpg`, `.png`, ...) | Groq vision model | Reads photographed complaint forms *and* photographs of the defect itself. Downscaled to 1400px and re-encoded first, because image tokens scale with area. |
+| **Text** (`.txt`, `.md`) | passthrough | |
+
+**Why a vision model rather than Tesseract.** The most likely complaint image is
+a photograph of the defect - discoloured capsules in a bottle, particles in a
+vial. There is no text in it, so OCR returns nothing useful for exactly the case
+that matters most. A vision model describes what is visible instead. Tesseract
+remains a fallback when `GROQ_VISION_MODEL` is left blank.
+
+Of the models a free Groq key can reach, only the Qwen family accepts image
+input; the `gpt-oss` models reject it with "content must be a string".
+
+Generate the sample documents with:
+
+```bash
+python make_sample_pdfs.py      # four complaint PDFs
+python make_sample_emails.py    # plain, HTML-only, and multipart with attachment
+python make_sample_image.py     # a photographed complaint form
+```
+
+---
+
 ## Demo script
 
 Sample source documents are in `backend/samples/`, as both `.txt` and `.pdf`.
