@@ -31,13 +31,13 @@ from app.schemas import (
 # bare container nouns ("bottle").
 CATEGORY_KEYWORDS: list[tuple[ComplaintCategory, tuple[str, ...]]] = [
     (ComplaintCategory.ADVERSE_EVENT, ("adverse event", "hospitalis", "hospitaliz", "rash", "anaphyla", "side effect", "patient harm", "injury", "nausea", "lack of efficacy")),
-    (ComplaintCategory.COUNTERFEIT, ("counterfeit", "falsified", "tamper", "suspect product", "not genuine")),
+    (ComplaintCategory.COUNTERFEIT, ("counterfeit", "falsified", "falsifie", "tamper", "suspect product", "not genuine", "hologram", "not appear in our records", "not in our records", "no such batch", "unrecognised batch", "unrecognized batch", "does not match our artwork")),
     (ComplaintCategory.MICROBIAL, ("microbial", "fungal", "mould", "mold", "bacterial", "sterility", "growth observed", "contaminat")),
     (ComplaintCategory.FOREIGN_MATTER, ("foreign matter", "particle", "particulate", "metal", "glass", "fibre", "fiber", "hair", "insect")),
     (ComplaintCategory.ANALYTICAL, ("out of specification", "oos", "assay", "dissolution", "impurity", "potency", "fails the specification", "% w/w")),
-    (ComplaintCategory.LABELLING, ("label", "artwork", "misprint", "illegible", "wrong text", "mismatch", "barcode")),
+    (ComplaintCategory.LABELLING, ("label", "artwork", "misprint", "overprint", "illegible", "unreadable", "smudged", "smeared", "faded print", "wrong text", "mismatch", "barcode", "leaflet")),
     # Defects of the dosage form itself.
-    (ComplaintCategory.PRODUCT_QUALITY, ("chipped", "broken", "cracked", "discolour", "discolor", "capping", "lamination", "sticking", "mottling", "odour", "odor", "clump", "caking", "crumbl", "crushed", "powder", "softened", "melted", "stuck together")),
+    (ComplaintCategory.PRODUCT_QUALITY, ("chipped", "broken", "cracked", "discolour", "discolor", "capping", "lamination", "sticking", "mottling", "odour", "odor", "clump", "caking", "crumbl", "crushed", "powder", "softened", "melted", "stuck together", "cloudy", "turbid", "sediment", "settled at the bottom", "precipitate", "separation", "sedimentation", "lumps")),
     # Defects of the packaging - phrased as failures, not as container nouns.
     (ComplaintCategory.PACKAGING, ("seal not adhered", "seal loose", "seal failure", "not sealed", "unsealed", "leak", "closure defect", "cap loose", "packaging damaged", "carton damaged", "blister damaged", "container closure", "poorly sealed", "damaged pack")),
     (ComplaintCategory.SHIPPING, ("cold chain", "temperature excursion", "in transit", "shipment", "logistics", "pallet", "short shipped", "damaged on arrival")),

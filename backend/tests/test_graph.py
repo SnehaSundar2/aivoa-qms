@@ -247,3 +247,54 @@ def test_completeness_passes_a_full_record():
 
     assert result.is_complete is True
     assert result.missing_mandatory == []
+
+
+# --- categories the first pass missed --------------------------------------
+# Found by validating the demo script: a first complaint report describes what
+# looks wrong, not what the QMS calls it. Nobody writes "counterfeit" - they
+# write "the hologram does not match".
+@pytest.mark.parametrize(
+    "text,expected_category,expected_severity",
+    [
+        (
+            "the hologram does not match our artwork and the batch number does "
+            "not appear in our records",
+            "Suspected Falsified Product",
+            "Critical",
+        ),
+        (
+            "the overprinted batch number and expiry are smudged and unreadable",
+            "Labelling / Artwork Defect",
+            "Major",
+        ),
+        (
+            "the cough syrup has gone cloudy with something settled at the bottom",
+            "Product Quality Defect",
+            "Major",
+        ),
+        (
+            "a patient developed a severe skin rash two hours after the dose",
+            "Adverse Event / Medical",
+            "Critical",
+        ),
+    ],
+)
+def test_first_report_wording_is_classified(text, expected_category, expected_severity):
+    extracted = heuristics.extract(text)
+    assert extracted.complaint_category == expected_category
+
+    risk = heuristics.assess_risk(text, extracted.complaint_category)
+    assert risk.severity == expected_severity
+
+
+def test_suspected_falsification_is_never_merely_cosmetic():
+    """It was graded Minor: "artwork" matched Labelling and "carton" matched
+    the cosmetic keyword list. A suspected counterfeit is the most serious
+    class of complaint there is."""
+    text = (
+        "cartons where the hologram does not match our artwork and the batch "
+        "number does not appear in our records"
+    )
+    risk = heuristics.assess_risk(text, heuristics.extract(text).complaint_category)
+    assert risk.severity == "Critical"
+    assert risk.regulatory_reportable is True
